@@ -47,6 +47,9 @@ class Sparse4DHead(BaseModule):
         dn_loss_weight: float = 5.0,
         decouple_attn: bool = True,
         init_cfg: dict = None,
+        num_reg_fcs: int = 2,
+        ego_fut_mode: int = 1,
+        fut_ts: int = 6,
         **kwargs,
     ):
         super(Sparse4DHead, self).__init__(init_cfg)
@@ -109,6 +112,19 @@ class Sparse4DHead(BaseModule):
             self.fc_before = nn.Identity()
             self.fc_after = nn.Identity()
         self.ego_his_encoder = nn.Linear(4, self.embed_dims, bias=False)
+        self.agent_self_attn = AgentSelfAttention(self.embed_dims, depth=2)
+        self.ego_agent_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
+
+        ego_fut_decoder = []
+        self.num_reg_fcs = num_reg_fcs
+        self.ego_fut_mode = ego_fut_mode
+        self.fut_ts = fut_ts
+        ego_fut_dec_in_dim = self.embed_dims * 2
+        for _ in range(self.num_reg_fcs):
+            ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, ego_fut_dec_in_dim))
+            ego_fut_decoder.append(nn.ReLU())
+        ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, self.ego_fut_mode * self.fut_ts * 2))
+        self.ego_fut_decoder = nn.Sequential(*ego_fut_decoder)
 
     def init_weights(self):
         for i, op in enumerate(self.operation_order):
@@ -403,21 +419,28 @@ class Sparse4DHead(BaseModule):
             output["track_id"] = track_id  # [1, 900], int64
         
         ###################### planning ######################
+        bs = instance_feature.shape[0]
         agent_query = instance_feature  # [bs, num_agent, embed_dims]
         # ego_his_trajs = data['ego_his_trajs'][0]
         ego_his_trajs = torch.randn(1, 1, 2, 2).cuda()  # TODO: replace placeholder
         ego_his_feats = self.ego_his_encoder(ego_his_trajs.flatten(2))
         ego_query = ego_his_feats
 
-        ego_agent_query = self.ego_agent_decoder(
-            query=ego_query.permute(1, 0, 2),
-            key=agent_query.permute(1, 0, 2),
-            value=agent_query.permute(1, 0, 2),)
+        agent_query = self.agent_self_attn(
+            hidden_states=agent_query,
+            attention_mask=None)
+
+        ego_agent_query = self.ego_agent_cross_attn(
+            hs_query=ego_query, 
+            hs_key=agent_query,
+            attention_mask=None)
         
-        ego_map_query = torch.randn(1, 1, self.embed_dims).cuda()  # TODO: replace placeholder
-        ego_feats = torch.cat([ego_agent_query.permute(1, 0, 2), ego_map_query.permute(1, 0, 2)], dim=-1)  # [B, 1, 2D]  
+        ego_map_query = torch.randn(bs, 1, self.embed_dims).cuda()  # TODO: replace placeholder
+        ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, 1, 2D]
+
         outputs_ego_trajs = self.ego_fut_decoder(ego_feats)
         outputs_ego_trajs = outputs_ego_trajs.reshape(outputs_ego_trajs.shape[0], self.ego_fut_mode, self.fut_ts, 2)
+        output['ego_fut_preds'] = outputs_ego_trajs
         
         return output
 
