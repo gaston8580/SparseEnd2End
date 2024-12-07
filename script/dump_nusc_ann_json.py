@@ -431,7 +431,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="nuscenes converter")
-    parser.add_argument("--root_path", type=str, default="./data/nuscenes")
+    parser.add_argument("--root_path", type=str, default="./data/nuscenes/nuscenes")
     parser.add_argument("--info_prefix", type=str, default="./data/nusc_anno_dumpjson")
     parser.add_argument("--version", type=str, default="v1.0-mini")
     parser.add_argument("--max_sweeps", type=int, default=10)

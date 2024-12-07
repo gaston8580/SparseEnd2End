@@ -50,3 +50,4 @@ ENV/
 # datas
 data
 ckpt
+e2e_worklog

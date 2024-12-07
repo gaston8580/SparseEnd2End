@@ -216,7 +216,7 @@ model = dict(
 
 # ================== data ========================
 dataset_type = "NuScenes4DDetTrackDataset"
-data_root = "data/nuscenes/"
+data_root = "data/nuscenes/nuscenes/"
 anno_root = "data/nuscenes_cam/"
 anno_root = "data/nuscenes_anno_pkls/"
 

@@ -108,6 +108,7 @@ class Sparse4DHead(BaseModule):
         else:
             self.fc_before = nn.Identity()
             self.fc_after = nn.Identity()
+        self.ego_his_encoder = nn.Linear(4, self.embed_dims, bias=False)
 
     def init_weights(self):
         for i, op in enumerate(self.operation_order):
@@ -400,6 +401,24 @@ class Sparse4DHead(BaseModule):
                 cls, anchor, self.decoder.score_threshold
             )
             output["track_id"] = track_id  # [1, 900], int64
+        
+        ###################### planning ######################
+        agent_query = instance_feature  # [bs, num_agent, embed_dims]
+        # ego_his_trajs = data['ego_his_trajs'][0]
+        ego_his_trajs = torch.randn(1, 1, 2, 2).cuda()  # TODO: replace placeholder
+        ego_his_feats = self.ego_his_encoder(ego_his_trajs.flatten(2))
+        ego_query = ego_his_feats
+
+        ego_agent_query = self.ego_agent_decoder(
+            query=ego_query.permute(1, 0, 2),
+            key=agent_query.permute(1, 0, 2),
+            value=agent_query.permute(1, 0, 2),)
+        
+        ego_map_query = torch.randn(1, 1, self.embed_dims).cuda()  # TODO: replace placeholder
+        ego_feats = torch.cat([ego_agent_query.permute(1, 0, 2), ego_map_query.permute(1, 0, 2)], dim=-1)  # [B, 1, 2D]  
+        outputs_ego_trajs = self.ego_fut_decoder(ego_feats)
+        outputs_ego_trajs = outputs_ego_trajs.reshape(outputs_ego_trajs.shape[0], self.ego_fut_mode, self.fut_ts, 2)
+        
         return output
 
     @force_fp32(apply_to=("model_outs"))

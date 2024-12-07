@@ -1,5 +1,8 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
-import os
+import os, sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+sys.path.append(project_root)
 import time
 import argparse
 
@@ -20,7 +23,8 @@ from modules.sparse4d_detector import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train E2E detector")
-    parser.add_argument("config", help="train config file path")
+    parser.add_argument("--config", default='dataset/config/sparse4d_temporal_r50_1x1_bs1_256x704_mini.py', 
+                        help="train config file path")
     parser.add_argument("--launcher", choices=["none", "pytorch"], default="none")
     parser.add_argument(
         "--deterministic",
