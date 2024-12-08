@@ -48,7 +48,7 @@ class Sparse4DHead(BaseModule):
         decouple_attn: bool = True,
         init_cfg: dict = None,
         num_reg_fcs: int = 2,
-        ego_fut_mode: int = 1,
+        ego_fut_mode: int = 3,
         fut_ts: int = 6,
         **kwargs,
     ):
@@ -119,12 +119,13 @@ class Sparse4DHead(BaseModule):
         self.num_reg_fcs = num_reg_fcs
         self.ego_fut_mode = ego_fut_mode
         self.fut_ts = fut_ts
-        ego_fut_dec_in_dim = self.embed_dims * 2
+        ego_fut_dec_in_dim = self.embed_dims
         for _ in range(self.num_reg_fcs):
             ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, ego_fut_dec_in_dim))
             ego_fut_decoder.append(nn.ReLU())
         ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, self.ego_fut_mode * self.fut_ts * 2))
         self.ego_fut_decoder = nn.Sequential(*ego_fut_decoder)
+        self.loss_plan_reg = L1Loss()
 
     def init_weights(self):
         for i, op in enumerate(self.operation_order):
@@ -419,24 +420,25 @@ class Sparse4DHead(BaseModule):
             output["track_id"] = track_id  # [1, 900], int64
         
         ###################### planning ######################
-        bs = instance_feature.shape[0]
         agent_query = instance_feature  # [bs, num_agent, embed_dims]
         # ego_his_trajs = data['ego_his_trajs'][0]
         ego_his_trajs = torch.randn(1, 1, 2, 2).cuda()  # TODO: replace placeholder
         ego_his_feats = self.ego_his_encoder(ego_his_trajs.flatten(2))
         ego_query = ego_his_feats
 
+        # agent interaction
         agent_query = self.agent_self_attn(
             hidden_states=agent_query,
             attention_mask=None)
 
+        # ego agent interaction
         ego_agent_query = self.ego_agent_cross_attn(
             hs_query=ego_query, 
             hs_key=agent_query,
             attention_mask=None)
         
-        ego_map_query = torch.randn(bs, 1, self.embed_dims).cuda()  # TODO: replace placeholder
-        ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, 1, 2D]
+        # ego_map_query = torch.randn(bs, 1, self.embed_dims).cuda()
+        ego_feats = torch.cat([ego_agent_query], dim=-1)  # [B, 1, D]
 
         outputs_ego_trajs = self.ego_fut_decoder(ego_feats)
         outputs_ego_trajs = outputs_ego_trajs.reshape(outputs_ego_trajs.shape[0], self.ego_fut_mode, self.fut_ts, 2)
@@ -546,6 +548,25 @@ class Sparse4DHead(BaseModule):
             )
             output[f"loss_cls_dn_{decoder_idx}"] = cls_loss
             output.update(reg_loss)
+        
+        # ego_fut_cmd = data['ego_fut_cmd'][0]
+        # ego_fut_masks = data['ego_fut_mask'][0]
+        # ego_fut_gt = data['ego_fut_trajs'][0]
+        ego_fut_cmd = torch.tensor((0, 1, 0)).cuda().float()
+        ego_fut_masks = torch.ones(1, 6).cuda().float()
+        ego_fut_gt = torch.randn(1, 6, 2).cuda()
+        ego_fut_preds = model_outs['ego_fut_preds']
+        ego_fut_gt = ego_fut_gt.unsqueeze(1).repeat(1, self.ego_fut_mode, 1, 1)
+        loss_plan_l1_weight = ego_fut_cmd[..., None, None] * ego_fut_masks[:, None, :, None]
+        loss_plan_l1_weight = loss_plan_l1_weight.repeat(1, 1, 1, 2)
+
+        loss_plan_l1 = self.loss_plan_reg(
+            ego_fut_preds,
+            ego_fut_gt,
+            loss_plan_l1_weight
+        )
+        output['loss_plan_reg'] = loss_plan_l1
+
         return output
 
     def prepare_for_dn_loss(self, model_outs, prefix=""):
