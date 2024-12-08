@@ -10,7 +10,7 @@ from nuscenes.utils.data_classes import Box
 from nuscenes.utils.geometry_utils import transform_matrix
 from nuscenes.can_bus.can_bus_api import NuScenesCanBus
 #from projects.mmdet3d_plugin.datasets.map_utils.nuscmap_extractor import NuscMapExtractor
-from .map_utils.nuscmap_extractor import NuscMapExtractor
+from map_utils.nuscmap_extractor import NuscMapExtractor
 
 NameMapping = {
     "movable_object.barrier": "barrier",

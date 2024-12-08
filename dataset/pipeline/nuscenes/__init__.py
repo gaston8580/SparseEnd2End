@@ -9,6 +9,7 @@ from .nusc_pipeline import (
     CircleObjectRangeFilter,
     NuScenesSparse4DAdaptor,
     Collect,
+    VectorizeMap,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "CircleObjectRangeFilter",
     "NuScenesSparse4DAdaptor",
     "Collect",
+    "VectorizeMap",
 ]
