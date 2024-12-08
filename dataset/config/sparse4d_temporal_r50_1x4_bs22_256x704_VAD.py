@@ -350,6 +350,13 @@ val_pipeline = [
             "gt_depth_ori",
             "gt_bboxes_3d",
             "gt_labels_3d",
+            "fut_valid_flag",
+            "map_annos",
+            "ego_his_trajs",
+            "ego_fut_trajs",
+            "ego_fut_masks",
+            "ego_fut_cmd",
+            "ego_lcf_feat",
         ],
         meta_keys=[
             "sample_idx",
