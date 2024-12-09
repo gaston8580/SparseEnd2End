@@ -5,9 +5,10 @@ import torch
 
 from PIL import Image
 from numpy import random
-from typing import List
+from typing import List, Tuple, Dict, Union
 from dataset.utils.data_container import DataContainer
-
+from shapely.geometry import LineString
+from numpy.typing import NDArray
 
 class LoadMultiViewImageFromFiles(object):
     """Load multi channel images from a list of separate channel files.
