@@ -27,6 +27,7 @@ class Sparse4D(BaseDetector):
         img_neck,
         head,
         map_head=None,
+        motion_head=None,
         depth_branch=None,
         use_grid_mask=True,
         use_deformable_func=False,
@@ -45,8 +46,10 @@ class Sparse4D(BaseDetector):
             self.img_neck = build_module(img_neck)
         self.head = build_module(head)
         self.map_head = None
-        if map_head is not None:
-            self.map_head = build_module(map_head)
+        # if map_head is not None:
+        #     self.map_head = build_module(map_head)
+        if motion_head is not None:
+            self.motion_head = build_module(motion_head)
         self.use_grid_mask = use_grid_mask
         if use_deformable_func:
             assert DFA_VALID, "deformable_aggregation needs to be set up."
@@ -102,10 +105,11 @@ class Sparse4D(BaseDetector):
         if self.map_head is not None:
             map_model_outs = self.map_head(feature_maps, data)
         ####add motion head forward
-        
+        if self.motion_head is not None:
+            instance_feature = model_outs['instance_feature']
+            motion_model_outs = self.motion_head(instance_feature, data)
         
         output = dict()
-        
         det_output = self.head.loss(model_outs, data)
         output.update(det_output)
 
@@ -113,6 +117,9 @@ class Sparse4D(BaseDetector):
         if self.map_head is not None:
             map_losses_output = self.map_head(map_model_outs, data)
             output.update(map_losses_output)
+        if self.motion_head is not None:
+            motion_losses_output = self.motion_head.loss(motion_model_outs, data)
+            output.update(motion_losses_output)
         
         if depths is not None and "gt_depth" in data:
             output["loss_dense_depth"] = self.depth_branch.loss(

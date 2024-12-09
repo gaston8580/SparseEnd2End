@@ -188,7 +188,7 @@ def _fill_trainval_infos(nusc, nusc_map_extractor, nusc_can_bus, train_scenes, v
     ##Future  3s##
     fut_ts = 6
     ##History 2s
-    his_ts = 1
+    his_ts = 2
     # train_nusc_infos = []
     # val_nusc_infos = []
     trainscene_nusc_infos = dict()

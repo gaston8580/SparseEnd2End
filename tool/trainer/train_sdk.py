@@ -4,7 +4,7 @@ import time
 import torch
 
 from typing import List, Dict, Optional, Any
-from dataset import NuScenes4DDetTrackDataset
+from dataset import NuScenes4DDetTrackDataset, NuScenes4DDetTrackVADDataset
 from dataset.dataloader_wrapper import dataloader_wrapper
 
 from ..utils.logging import get_logger

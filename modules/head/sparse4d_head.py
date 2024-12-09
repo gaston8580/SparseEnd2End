@@ -389,6 +389,7 @@ class Sparse4DHead(BaseModule):
                 "classification": classification,  # list:length=6 ([1, 900, 10], None, None, None, None, [1, 900, 10])
                 "prediction": prediction,  # list:length=6 ([1, 900, 11], ..., [1, 900, 11])
                 "quality": quality,  # list:length=6 ([1, 900, 2], ..., [1, 900, 2])
+                "instance_feature": instance_feature,
             }
         )
 
