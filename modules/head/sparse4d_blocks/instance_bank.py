@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from torch import nn
 from .sparse3d_embedding import *
+from .map_blocks import *
 
 __all__ = ["InstanceBank"]
 

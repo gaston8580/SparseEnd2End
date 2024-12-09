@@ -13,7 +13,7 @@ from dataset.pipeline.nuscenes import *
 
 from nuscenes.eval.detection.config import config_factory as det_configs
 from nuscenes.eval.common.config import config_factory as track_configs
-
+from shapely.geometry import LineString
 
 class NuScenes4DDetTrackVADDataset(Dataset):
     def __init__(
@@ -102,6 +102,16 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         self._scene = list(set([ann["scene_token"] for ann in ordered_annotations]))
         return ordered_annotations
 
+    def anno2geom(self, annos):
+        map_geoms = {}
+        for label, anno_list in annos.items():
+            map_geoms[label] = []
+            for anno in anno_list:
+                geom = LineString(np.array(anno))
+                map_geoms[label].append(geom)
+        return map_geoms
+    
+    
     def get_data_info(self, index):
         """format data dict fed to pipeline.
         img_filename: List[str] length=6(v)
@@ -120,21 +130,18 @@ class NuScenes4DDetTrackVADDataset(Dataset):
             ego2global_translation=info["ego2global_translation"],
             ego2global_rotation=info["ego2global_rotation"],
 
-            # prev_idx=info['prev'],
-            # next_idx=info['next'],
-            # can_bus= np.array(info['can_bus']),
-            # frame_idx=info['frame_idx'],
-            map_annos = np.array(info['map_annos']),
+            #prev_idx=info['prev'],
+            #next_idx=info['next'],
+            #can_bus= np.array(info['can_bus']),
+            #frame_idx=info['frame_idx'],
+            map_annos = info['map_annos'],
             fut_valid_flag=info['fut_valid_flag'],
-            map_location=info['map_location'],
+            #map_location=info['map_location'],
             ego_his_trajs=np.array(info['gt_ego_his_trajs']),
             ego_fut_trajs=np.array(info['gt_ego_fut_trajs']),
             ego_fut_masks= np.array(info['gt_ego_fut_masks']),
             ego_fut_cmd=np.array(info['gt_ego_fut_cmd']),
             ego_lcf_feat= np.array(info['gt_ego_lcf_feat'])
-
-
-
         )
 
         lidar2ego = np.eye(4)
@@ -150,6 +157,9 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         ego2global[:3, 3] = np.array(info["ego2global_translation"])
 
         input_dict["lidar2global"] = ego2global @ lidar2ego
+
+        map_geoms = self.anno2geom(info["map_annos"])
+        input_dict["map_geoms"] = map_geoms
 
         image_paths = []
         lidar2img_rts = []
