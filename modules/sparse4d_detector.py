@@ -115,7 +115,7 @@ class Sparse4D(BaseDetector):
 
          ####add motion head loss
         if self.map_head is not None:
-            map_losses_output = self.map_head(map_model_outs, data)
+            map_losses_output = self.map_head.loss(map_model_outs, data)
             output.update(map_losses_output)
         if self.motion_head is not None:
             motion_losses_output = self.motion_head.loss(motion_model_outs, data)

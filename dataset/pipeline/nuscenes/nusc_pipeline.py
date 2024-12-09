@@ -624,6 +624,27 @@ class NuScenesSparse4DAdaptor(object):
         imgs = [img.transpose(2, 0, 1) for img in input_dict["img"]]
         imgs = np.ascontiguousarray(np.stack(imgs, axis=0))
         input_dict["img"] = DataContainer(torch.from_numpy(imgs), stack=True)
+
+        for key in [
+            'gt_map_labels', 
+            'gt_map_pts',
+            'gt_agent_fut_trajs',
+            'gt_agent_fut_masks',
+        ]:
+            if key not in input_dict:
+                continue
+            input_dict[key] = DataContainer(torch.from_numpy(input_dict[key]), stack=False, cpu_only=False) 
+
+        for key in [
+            'gt_ego_fut_trajs',
+            'gt_ego_fut_masks',
+            'gt_ego_fut_cmd',
+            'ego_status',
+        ]:
+            if key not in input_dict:
+                continue
+            input_dict[key] = DataContainer(torch.from_numpy(input_dict[key]), stack=True, cpu_only=False, pad_dims=None)
+
         return input_dict
 
     def limit_period(
@@ -718,7 +739,7 @@ class VectorizeMap(object):
         else:
             assert simplify
 
-    def interp_fixed_num(self, line: LineString) -> NDArray:
+    def interp_fixed_num(self, line):
         ''' Interpolate a line to fixed number of points.
 
         Args:
@@ -734,7 +755,7 @@ class VectorizeMap(object):
 
         return sampled_points
 
-    def interp_fixed_dist(self, line: LineString) -> NDArray:
+    def interp_fixed_dist(self, line):
         ''' Interpolate a line at fixed interval.
 
         Args:
@@ -790,7 +811,7 @@ class VectorizeMap(object):
                     raise ValueError('map geoms must be either LineString or Polygon!')
         return vectors
 
-    def normalize_line(self, line: NDArray) -> NDArray:
+    def normalize_line(self, line):
         ''' Convert points to range (0, 1).
 
         Args:
@@ -861,7 +882,7 @@ class VectorizeMap(object):
             input_dict['gt_map_pts'] = np.array(gt_map_pts, dtype=np.float32).reshape(-1, 2 * (self.sample_num - 1),
                                                                                       self.sample_num, self.coords_dim)
         else:
-            input_dict['vectors'] = DC(vectors, stack=False, cpu_only=True)
+            input_dict['vectors'] = DataContainer(vectors, stack=False, cpu_only=True)
 
         return input_dict
 

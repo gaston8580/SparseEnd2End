@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image
 from typing import List, Optional
 from .sparse3d_embedding import *
+from .map_blocks import *
 from torch.cuda.amp.autocast_mode import autocast
 from modules.cnn.base_module import Sequential, BaseModule
 from modules.cnn.module import xavier_init, constant_init
