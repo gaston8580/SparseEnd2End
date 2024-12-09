@@ -36,6 +36,7 @@ class SparseBox3DLoss(nn.Module):
         box_target,
         weight=None,
         avg_factor=None,
+        prefix="",
         suffix="",
         quality=None,
         cls_target=None,
@@ -64,7 +65,7 @@ class SparseBox3DLoss(nn.Module):
 
         output = {}
         box_loss = self.loss_box(box, box_target, weight=weight, avg_factor=avg_factor)
-        output[f"loss_box{suffix}"] = box_loss
+        output[f"{prefix}loss_box{suffix}"] = box_loss
 
         if quality is not None:
             cns = quality[..., CNS]
@@ -74,7 +75,7 @@ class SparseBox3DLoss(nn.Module):
             )
             cns_target = torch.exp(-cns_target)
             cns_loss = self.loss_cns(cns, cns_target, avg_factor=avg_factor)
-            output[f"loss_cns{suffix}"] = cns_loss
+            output[f"{prefix}loss_cns{suffix}"] = cns_loss
 
             yns_target = (
                 torch.nn.functional.cosine_similarity(
@@ -86,5 +87,5 @@ class SparseBox3DLoss(nn.Module):
             )
             yns_target = yns_target.float()
             yns_loss = self.loss_yns(yns, yns_target, avg_factor=avg_factor)
-            output[f"loss_yns{suffix}"] = yns_loss
+            output[f"{prefix}loss_yns{suffix}"] = yns_loss
         return output

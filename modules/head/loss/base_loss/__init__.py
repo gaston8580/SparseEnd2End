@@ -2,6 +2,6 @@
 from .cross_entropy_loss import CrossEntropyLoss
 from .focal_loss import FocalLoss
 from .gaussian_focal_loss import GaussianFocalLoss
-from .smooth_l1_loss import L1Loss
+from .smooth_l1_loss import L1Loss, smooth_l1_loss, l1_loss
 
-__all__ = ["CrossEntropyLoss", "FocalLoss", "GaussianFocalLoss", "L1Loss"]
+__all__ = ["CrossEntropyLoss", "FocalLoss", "GaussianFocalLoss", "L1Loss", 'smooth_l1_loss', 'l1_loss']
