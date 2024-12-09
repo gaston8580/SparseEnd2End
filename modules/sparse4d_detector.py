@@ -26,6 +26,7 @@ class Sparse4D(BaseDetector):
         img_backbone,
         img_neck,
         head,
+        map_head=None,
         depth_branch=None,
         use_grid_mask=True,
         use_deformable_func=False,
@@ -43,6 +44,9 @@ class Sparse4D(BaseDetector):
         if img_neck is not None:
             self.img_neck = build_module(img_neck)
         self.head = build_module(head)
+        self.map_head = None
+        if map_head is not None:
+            self.map_head = build_module(map_head)
         self.use_grid_mask = use_grid_mask
         if use_deformable_func:
             assert DFA_VALID, "deformable_aggregation needs to be set up."
@@ -94,7 +98,22 @@ class Sparse4D(BaseDetector):
     def forward_train(self, img, **data):
         feature_maps, depths = self.extract_feat(img, True, data)
         model_outs = self.head(feature_maps, data)
-        output = self.head.loss(model_outs, data)
+        ###add map head forward
+        if self.map_head is not None:
+            map_model_outs = self.map_head(feature_maps, data)
+        ####add motion head forward
+        
+        
+        output = dict()
+        
+        det_output = self.head.loss(model_outs, data)
+        output.update(det_output)
+
+         ####add motion head loss
+        if self.map_head is not None:
+            map_losses_output = self.map_head(map_model_outs, data)
+            output.update(map_losses_output)
+        
         if depths is not None and "gt_depth" in data:
             output["loss_dense_depth"] = self.depth_branch.loss(
                 depths, data["gt_depth"]
@@ -111,8 +130,26 @@ class Sparse4D(BaseDetector):
         feature_maps = self.extract_feat(img)
 
         model_outs = self.head(feature_maps, data)
-        results = self.head.post_process(model_outs)
-        output = [{"img_bbox": result} for result in results]
+        det_results = self.head.post_process(model_outs)
+        batch_size = len(det_results)
+
+        ###add map head forward
+        if self.map_head is not None:
+            map_model_outs = self.map_head(feature_maps, data)
+            map_results = self.map_head.post_process(map_model_outs)
+            batch_size = len(map_results)
+
+        # output = [{"img_bbox": result} for result in results]
+        output = [dict()] * batch_size
+        for i in range(batch_size):
+            output[i].update(det_results[i])
+            if self.map_head is not None:
+                output[i].update(map_results[i])
+            
+            ####add motion results
+            # if self.task_config['with_motion_plan']:
+            #     output[i].update(motion_results[i])
+            #     output[i].update(planning_results[i])
         return output
 
     def aug_test(self, img, **data):

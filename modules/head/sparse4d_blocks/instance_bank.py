@@ -64,6 +64,8 @@ class InstanceBank(nn.Module):
             anchor = np.load(anchor)
         elif isinstance(anchor, (list, tuple)):
             anchor = np.array(anchor)
+        if len(anchor.shape) == 3: # for map
+            anchor = anchor.reshape(anchor.shape[0], -1)
         self.num_anchor = min(len(anchor), num_anchor)
         anchor = anchor[:num_anchor]
         self.anchor = nn.Parameter(
@@ -190,6 +192,11 @@ class InstanceBank(nn.Module):
             self.mask[:, None, None], selected_feature, instance_feature
         )
         anchor = torch.where(self.mask[:, None, None], selected_anchor, anchor)
+        self.confidence = torch.where(
+            self.mask[:, None],
+            self.confidence,
+            self.confidence.new_tensor(0)
+        )
         if self.track_id is not None:
             self.track_id = torch.where(
                 self.mask[:, None],
