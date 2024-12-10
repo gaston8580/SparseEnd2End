@@ -417,7 +417,7 @@ model = dict(
             type="InstanceBank",
             num_anchor=900,
             embed_dims=embed_dims,
-            anchor="data/nuscenes_kmeans900.npy",
+            anchor="data/kmeans_det_900.npy",
             anchor_handler=dict(type="SparseBox3DKeyPointsGenerator"),
             num_temp_instances=600 if temporal else -1,
             confidence_decay=0.6,

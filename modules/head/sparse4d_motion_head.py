@@ -115,11 +115,12 @@ class Sparse4DMotionHead(BaseModule):
         self.ego_his_encoder = nn.Linear(4, self.embed_dims, bias=False)
         self.agent_self_attn = AgentSelfAttention(self.embed_dims, depth=2)
         self.ego_agent_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
+        self.ego_map_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
         ego_fut_decoder = []
         self.num_reg_fcs = num_reg_fcs
         self.ego_fut_mode = ego_fut_mode
         self.fut_ts = fut_ts
-        ego_fut_dec_in_dim = self.embed_dims
+        ego_fut_dec_in_dim = self.embed_dims * 2
         for _ in range(self.num_reg_fcs):
             ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, ego_fut_dec_in_dim))
             ego_fut_decoder.append(nn.ReLU())
@@ -169,11 +170,13 @@ class Sparse4DMotionHead(BaseModule):
 
     def forward(
         self,
-        instance_feature: torch.Tensor,
+        agent_hs: torch.Tensor,
+        map_hs: torch.Tensor,
         data: dict,
     ):
         output = {}
-        agent_query = instance_feature  # [bs, num_agent, embed_dims]
+        agent_query = agent_hs  # [bs, num_agent, embed_dims]
+        map_query = map_hs  # [bs, num_map, embed_dims]
         ego_his_trajs = data['ego_his_trajs'].float().unsqueeze(1)
         ego_his_feats = self.ego_his_encoder(ego_his_trajs.flatten(2))
         ego_query = ego_his_feats
@@ -189,7 +192,13 @@ class Sparse4DMotionHead(BaseModule):
             hs_key=agent_query,
             attention_mask=None)
         
-        ego_feats = torch.cat([ego_agent_query], dim=-1)  # [B, 1, D]
+        # ego map interaction
+        ego_map_query = self.ego_map_cross_attn(
+            hs_query=ego_agent_query, 
+            hs_key=map_query,
+            attention_mask=None)
+        
+        ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, 1, 2D]
 
         outputs_ego_trajs = self.ego_fut_decoder(ego_feats)
         outputs_ego_trajs = outputs_ego_trajs.reshape(outputs_ego_trajs.shape[0], self.ego_fut_mode, self.fut_ts, 2)

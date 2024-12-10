@@ -46,8 +46,8 @@ class Sparse4D(BaseDetector):
             self.img_neck = build_module(img_neck)
         self.head = build_module(head)
         self.map_head = None
-        # if map_head is not None:
-        #     self.map_head = build_module(map_head)
+        if map_head is not None:
+            self.map_head = build_module(map_head)
         if motion_head is not None:
             self.motion_head = build_module(motion_head)
         self.use_grid_mask = use_grid_mask
@@ -101,19 +101,20 @@ class Sparse4D(BaseDetector):
     def forward_train(self, img, **data):
         feature_maps, depths = self.extract_feat(img, True, data)
         model_outs = self.head(feature_maps, data)
-        ###add map head forward
+
+        # map head forward
         if self.map_head is not None:
             map_model_outs = self.map_head(feature_maps, data)
-        ####add motion head forward
+
+        # motion head forward
         if self.motion_head is not None:
-            instance_feature = model_outs['instance_feature']
-            motion_model_outs = self.motion_head(instance_feature, data)
+            agent_hs = model_outs['instance_feature']
+            map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
+            motion_model_outs = self.motion_head(agent_hs, map_hs, data)
         
         output = dict()
         det_output = self.head.loss(model_outs, data)
         output.update(det_output)
-
-         ####add motion head loss
         if self.map_head is not None:
             map_losses_output = self.map_head.loss(map_model_outs, data)
             output.update(map_losses_output)
