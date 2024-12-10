@@ -193,12 +193,14 @@ class Sparse4DMotionHead(BaseModule):
             attention_mask=None)
         
         # ego map interaction
-        ego_map_query = self.ego_map_cross_attn(
-            hs_query=ego_agent_query, 
-            hs_key=map_query,
-            attention_mask=None)
-        
-        ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, 1, 2D]
+        if map_query is not None:
+            ego_map_query = self.ego_map_cross_attn(
+                hs_query=ego_agent_query, 
+                hs_key=map_query,
+                attention_mask=None)
+            ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, 1, 2D]
+        else:
+            ego_feats = torch.cat([ego_agent_query, ego_agent_query], dim=-1)
 
         outputs_ego_trajs = self.ego_fut_decoder(ego_feats)
         outputs_ego_trajs = outputs_ego_trajs.reshape(outputs_ego_trajs.shape[0], self.ego_fut_mode, self.fut_ts, 2)
