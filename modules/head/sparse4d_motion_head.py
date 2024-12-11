@@ -1,5 +1,5 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
-import torch
+import torch, math
 import torch.nn as nn
 
 from typing import List, Optional, Union
@@ -224,6 +224,12 @@ class Sparse4DMotionHead(BaseModule):
             ego_fut_gt,
             loss_plan_l1_weight
         )
+        if math.isnan(loss_plan_l1):
+            # loss_plan_l1 = torch.tensor(0.0).to(loss_plan_l1.device)
+            print('ego_fut_masks: ', ego_fut_masks)
+            print('ego_fut_gt: ', data['ego_fut_trajs'].float())
+            print('ego_fut_preds: ', ego_fut_preds)
+            print('ego_fut_cmd: ', ego_fut_cmd)
         output['loss_plan_reg'] = loss_plan_l1
 
         return output
