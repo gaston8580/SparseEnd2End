@@ -697,7 +697,7 @@ test_pipeline = [
     dict(type="NuScenesSparse4DAdaptor"),
     dict(
         type="Collect",
-        keys=["img", "timestamp", "lidar2img", "image_wh", "ori_img"],
+        keys=["img", "timestamp", "lidar2img", "image_wh", "ori_img", "ego_his_trajs", "ego_fut_trajs", "ego_fut_cmd",],
         meta_keys=["lidar2global", "global2lidar", "timestamp"],
     ),
 ]

@@ -152,7 +152,7 @@ class Sparse4D(BaseDetector):
             agent_hs = model_outs['instance_feature']
             map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
             motion_model_outs = self.motion_head(agent_hs, map_hs, data)
-            motion_results = self.motion_head.post_process(motion_model_outs)
+            motion_results = self.motion_head.post_process(motion_model_outs, data)
 
         output = [dict()] * batch_size
         for i in range(batch_size):
