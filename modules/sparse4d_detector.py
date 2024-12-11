@@ -141,23 +141,26 @@ class Sparse4D(BaseDetector):
         det_results = self.head.post_process(model_outs)
         batch_size = len(det_results)
 
-        ###add map head forward
+        # map head forward
         if self.map_head is not None:
             map_model_outs = self.map_head(feature_maps, data)
             map_results = self.map_head.post_process(map_model_outs)
             batch_size = len(map_results)
+        
+        # motion head forward
+        if self.motion_head is not None:
+            agent_hs = model_outs['instance_feature']
+            map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
+            motion_model_outs = self.motion_head(agent_hs, map_hs, data)
+            motion_results = self.motion_head.post_process(motion_model_outs)
 
-        # output = [{"img_bbox": result} for result in results]
         output = [dict()] * batch_size
         for i in range(batch_size):
             output[i].update(det_results[i])
             if self.map_head is not None:
                 output[i].update(map_results[i])
-            
-            ####add motion results
-            # if self.task_config['with_motion_plan']:
-            #     output[i].update(motion_results[i])
-            #     output[i].update(planning_results[i])
+            if self.motion_head is not None:
+                output[i].update(motion_results[i])
         return output
 
     def aug_test(self, img, **data):

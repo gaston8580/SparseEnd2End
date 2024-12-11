@@ -261,11 +261,11 @@ class Sparse4DMotionHead(BaseModule):
         )
 
     @force_fp32(apply_to=("model_outs"))
-    def post_process(self, model_outs, output_idx=-1):
-        return self.decoder.decode(
-            model_outs["classification"],
-            model_outs["prediction"],
-            model_outs.get("track_id"),
-            model_outs.get("quality"),
-            output_idx=output_idx,
-        )
+    def post_process(self, model_outs, data):
+        outputs = {}
+        ego_fut_preds = model_outs['ego_fut_preds']
+        ego_fut_cmd = data['ego_fut_cmd']
+        cmd_idx = torch.nonzero(ego_fut_cmd)[:, -1]
+        ego_fut_preds = ego_fut_preds[torch.arange(ego_fut_preds.shape[0]), cmd_idx, ...]
+        outputs['plan_traj'] = ego_fut_preds
+        return outputs
