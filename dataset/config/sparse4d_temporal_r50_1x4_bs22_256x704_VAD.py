@@ -127,6 +127,7 @@ model = dict(
         relu_before_extra_convs=True,
         in_channels=[256, 512, 1024, 2048],
     ),
+    
     head=dict(
         type="Sparse4DHead",
         cls_threshold_to_reg=0.05,
@@ -408,7 +409,6 @@ model = dict(
             task_prefix='map',
     ),
 
-    
     motion_head=dict(
         type="Sparse4DMotionHead",
         cls_threshold_to_reg=0.05,

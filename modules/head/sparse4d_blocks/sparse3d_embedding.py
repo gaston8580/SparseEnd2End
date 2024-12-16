@@ -311,6 +311,33 @@ class SparseBox3DKeyPointsGenerator(BaseModule):
             # dst_anchor = dst_anchor.index_select(dim=-1, index=index)
             dst_anchors.append(dst_anchor)
         return dst_anchors
+    
+    @staticmethod
+    def anchor_projection_trt(
+        anchor,
+        T_src2dst,
+        time_interval=None,
+    ):
+        """
+        anchor.shape   : (bs,num_query, 11), (X, Y, Z, W, L, H, SIN_YAW, COS_YAW, VX, VY, VZ)
+        T_src2dst_list : list default = 1?  [(1,4,4)]
+        time_intervals : list deafult = 1   [(1, )] history_t - cur_t
+        """
+        # for i in range(len(T_src2dst_list)):
+        vel = anchor[..., VX:]  # (bs, k, 3)
+        vel_dim = vel.shape[-1]  # 3
+        T_src2dst = torch.unsqueeze(T_src2dst.to(dtype=anchor.dtype), dim=1)  # (1,1,4,4)
+
+        center = anchor[..., [X, Y, Z]]  # (bs, k, 3)
+        translation = vel.transpose(0, -1) * time_interval
+        translation = translation.transpose(0, -1)
+        center = center - translation
+        center = (torch.matmul(T_src2dst[..., :3, :3].repeat(1, center.shape[1], 1, 1), center[..., None]).squeeze(dim=-1) + T_src2dst[..., :3, 3])
+        size = anchor[..., [W, L, H]]
+        yaw = torch.matmul(T_src2dst[..., :2, :2], anchor[..., [COS_YAW, SIN_YAW], None],).squeeze(-1)
+        vel = torch.matmul(T_src2dst[..., :vel_dim, :vel_dim], vel[..., None]).squeeze(-1)
+        dst_anchor = torch.cat([center, size, yaw, vel], dim=-1)
+        return dst_anchor
 
     @staticmethod
     def distance(anchor):

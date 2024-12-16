@@ -1,5 +1,6 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
-import os
+import os, sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import time
 import copy
 import logging
@@ -26,13 +27,13 @@ def parse_args():
     parser.add_argument(
         "--cfg",
         type=str,
-        default="dataset/config/sparse4d_temporal_r50_1x1_bs1_256x704_mini.py",
+        default="dataset/config/sparse4d_temporal_r50_1x4_bs22_256x704_VAD.py",
         help="deploy config file path",
     )
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="ckpt/sparse4dv3_r50.pth",
+        default="e2e_worklog/sparse4d_temporal_r50_1x4_bs22_256x704_VAD/iter_164.pth",
         help="deploy ckpt path",
     )
     parser.add_argument(
@@ -43,15 +44,18 @@ def parse_args():
     parser.add_argument(
         "--save_onnx1",
         type=str,
-        default="deploy/onnx/sparse4dhead1st.onnx",
+        default="deploy/onnx/sparse4dbackbone_head1st.onnx",
     )
     parser.add_argument(
         "--save_onnx2",
         type=str,
-        default="deploy/onnx/sparse4dhead2nd.onnx",
+        default="deploy/onnx/sparse4dbackbone_head2nd.onnx",
     )
     parser.add_argument(
-        "--o2", action="store_true", help="only export sparse4dhead2nd onnx."
+        "--o2", default=0, action="store_true", help="only export sparse4dhead2nd onnx."
+    )
+    parser.add_argument(
+        "--bank", default=0, action="store_true", help="whether export instance_bank onnx model."
     )
     args = parser.parse_args()
     return args
@@ -68,22 +72,19 @@ class Sparse4DHead1st(nn.Module):
         feature,
         spatial_shapes,
         level_start_index,
-        instance_feature,
-        anchor,
-        time_interval,
+        # instance_feature,
+        # anchor,
+        # time_interval,
         image_wh,
         lidar2img,
-    ):
-
+    ):  
         # Instance bank get inputs
-        temp_instance_feature = None
+        cached_instance_feature = None
         temp_anchor_embed = None
+        (instance_feature, anchor, _, time_interval) = self.instance_bank.get_cacahe_trt()
 
         # DFA inputs
-        metas = {
-            "image_wh": image_wh,
-            "lidar2img": lidar2img,
-        }
+        metas = {"image_wh": image_wh, "lidar2img": lidar2img,}
 
         anchor_embed = self.anchor_encoder(anchor)
 
@@ -98,8 +99,8 @@ class Sparse4DHead1st(nn.Module):
                 instance_feature = self.graph_model(
                     i,
                     instance_feature,
-                    temp_instance_feature,
-                    temp_instance_feature,
+                    cached_instance_feature,
+                    cached_instance_feature,
                     query_pos=anchor_embed,
                     key_pos=temp_anchor_embed,
                 )
@@ -113,32 +114,18 @@ class Sparse4DHead1st(nn.Module):
             elif op == "norm" or op == "ffn":
                 instance_feature = self.layers[i](instance_feature)
             elif op == "deformable":
-                # instance_feature = self.layers[i](
-                #     instance_feature,
-                #     anchor,
-                #     anchor_embed,
-                #     feature_maps,
-                #     metas,
-                # )
                 bs, num_anchor = instance_feature.shape[:2]
                 key_points = self.layers[i].kps_generator(anchor, instance_feature)
-                weights = self.layers[i]._get_weights(
-                    instance_feature, anchor_embed, metas
-                )
+                weights = self.layers[i]._get_weights(instance_feature, anchor_embed, metas)
                 points_2d = (
-                    self.layers[i]
-                    .project_points(
+                    self.layers[i].project_points(
                         key_points,
                         metas["lidar2img"],  # lidar2img
                         metas.get("image_wh"),
-                    )
-                    .permute(0, 2, 3, 1, 4)
-                    .reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
+                    ).permute(0, 2, 3, 1, 4).reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
                 )
                 weights = (
-                    weights.permute(0, 1, 4, 2, 3, 5)
-                    .contiguous()
-                    .reshape(
+                    weights.permute(0, 1, 4, 2, 3, 5).contiguous().reshape(
                         bs,
                         num_anchor,
                         self.layers[i].num_pts,
@@ -168,39 +155,47 @@ class Sparse4DHead1st(nn.Module):
                 prediction.append(anchor)
                 if i != len(self.operation_order) - 1:
                     anchor_embed = self.anchor_encoder(anchor)
+        
+        (temp_confidence, cached_confidence, cached_instance_feature, cached_anchor) = \
+            self.instance_bank.cache_trt(instance_feature, anchor, cls)
+        
+        prev_id = torch.tensor(0, dtype=torch.int64).cuda()
+        prev_id, track_id, cached_track_id = \
+            self.instance_bank.get_track_id_trt(cls, temp_confidence, prev_id)
+
         return (
             instance_feature,
             anchor,
             cls,
             qt,
-            tmp_outs[0],
-            tmp_outs[1],
-            tmp_outs[2],
-            tmp_outs[3],
-            tmp_outs[4],
-            tmp_outs[5],
+            track_id,
+            cached_track_id,
+            cached_confidence,
+            cached_instance_feature,
+            cached_anchor,
+            prev_id,
         )
 
     def forward(
         self,
-        feature,
-        spatial_shapes,
-        level_start_index,
-        instance_feature,
-        anchor,
-        time_interval,
+        img,
+        # instance_feature,
+        # anchor,
+        # time_interval,
         image_wh,
         lidar2img,
     ):
+        feature, spatial_shapes, level_start_index = self.model.extract_feat(img)
+
         head = self.model.head
         return self.head_forward(
             head,
             feature,
             spatial_shapes,
             level_start_index,
-            instance_feature,
-            anchor,
-            time_interval,
+            # instance_feature,
+            # anchor,
+            # time_interval,
             image_wh,
             lidar2img,
         )
@@ -220,22 +215,27 @@ class Sparse4DHead2nd(nn.Module):
         instance_feature,
         anchor,
         time_interval,
-        temp_instance_feature,
-        temp_anchor,
-        mask,
-        track_id,
         image_wh,
         lidar2img,
+        cached_instance_feature,  # cache
+        cached_anchor,            # cache
+        mask,
+        cached_track_id,
+        metas_global2lidar,
+        his_metas_lidar2global,
+        cached_confidence,
+        prev_id,
     ):
         mask = mask.bool()  # TensorRT binding type for bool input is NoneType.
+
+        (instance_feature, anchor, cached_anchor, time_interval) = \
+            self.instance_bank.get_cacahe_trt(cached_anchor, time_interval, metas_global2lidar, his_metas_lidar2global)
+
         anchor_embed = self.anchor_encoder(anchor)
-        temp_anchor_embed = self.anchor_encoder(temp_anchor)
+        temp_anchor_embed = self.anchor_encoder(cached_anchor)
 
         # DAF inputs
-        metas = {
-            "lidar2img": lidar2img,
-            "image_wh": image_wh,
-        }
+        metas = {"lidar2img": lidar2img, "image_wh": image_wh,}
 
         feature_maps = [feature, spatial_shapes, level_start_index]
         prediction = []
@@ -248,8 +248,8 @@ class Sparse4DHead2nd(nn.Module):
                 instance_feature = self.graph_model(
                     i,
                     instance_feature,
-                    temp_instance_feature,
-                    temp_instance_feature,
+                    cached_instance_feature,
+                    cached_instance_feature,
                     query_pos=anchor_embed,
                     key_pos=temp_anchor_embed,
                 )
@@ -263,32 +263,17 @@ class Sparse4DHead2nd(nn.Module):
             elif op == "norm" or op == "ffn":
                 instance_feature = self.layers[i](instance_feature)
             elif op == "deformable":
-                # instance_feature = self.layers[i](
-                #     instance_feature,
-                #     anchor,
-                #     anchor_embed,
-                #     feature_maps,
-                #     metas,
-                # )
                 bs, num_anchor = instance_feature.shape[:2]
                 key_points = self.layers[i].kps_generator(anchor, instance_feature)
-                weights = self.layers[i]._get_weights(
-                    instance_feature, anchor_embed, metas
-                )
-                points_2d = (
-                    self.layers[i]
-                    .project_points(
+                weights = self.layers[i]._get_weights(instance_feature, anchor_embed, metas)
+                points_2d = (self.layers[i].project_points(
                         key_points,
                         metas["lidar2img"],  # lidar2img
                         metas.get("image_wh"),
-                    )
-                    .permute(0, 2, 3, 1, 4)
-                    .reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
+                    ).permute(0, 2, 3, 1, 4).reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
                 )
                 weights = (
-                    weights.permute(0, 1, 4, 2, 3, 5)
-                    .contiguous()
-                    .reshape(
+                    weights.permute(0, 1, 4, 2, 3, 5).contiguous().reshape(
                         bs,
                         num_anchor,
                         self.layers[i].num_pts,
@@ -319,63 +304,58 @@ class Sparse4DHead2nd(nn.Module):
 
                 # update in head refine
                 if len(prediction) == self.num_single_frame_decoder:
-                    N = (
-                        self.instance_bank.num_anchor
-                        - self.instance_bank.num_temp_instances
-                    )
+                    N = (self.instance_bank.num_anchor - self.instance_bank.num_temp_instances)
                     cls = cls.max(dim=-1).values
-                    _, (selected_feature, selected_anchor) = topk(
-                        cls, N, instance_feature, anchor
-                    )
-                    selected_feature = torch.cat(
-                        [temp_instance_feature, selected_feature], dim=1
-                    )
-                    selected_anchor = torch.cat([temp_anchor, selected_anchor], dim=1)
-                    instance_feature = torch.where(
-                        mask[:, None, None], selected_feature, instance_feature
-                    )
+                    _, (selected_feature, selected_anchor) = topk(cls, N, instance_feature, anchor)
+                    selected_feature = torch.cat([cached_instance_feature, selected_feature], dim=1)
+                    selected_anchor = torch.cat([cached_anchor, selected_anchor], dim=1)
+                    instance_feature = torch.where(mask[:, None, None], selected_feature, instance_feature)
                     anchor = torch.where(mask[:, None, None], selected_anchor, anchor)
-                    track_id = torch.where(
-                        mask[:, None],
-                        track_id,
-                        track_id.new_tensor(-1),
-                    )
+                    cached_confidence = torch.where(mask[:, None], cached_confidence, cached_confidence.new_tensor(0))
+                    cached_track_id = torch.where(mask[:, None], cached_track_id, cached_track_id.new_tensor(-1))
 
                 if i != len(self.operation_order) - 1:
                     anchor_embed = self.anchor_encoder(anchor)
                 if len(prediction) > self.num_single_frame_decoder:
-                    temp_anchor_embed = anchor_embed[
-                        :, : self.instance_bank.num_temp_instances
-                    ]
+                    temp_anchor_embed = anchor_embed[:, : self.instance_bank.num_temp_instances]
+
+        (temp_confidence, cached_confidence, cached_instance_feature, cached_anchor) = \
+            self.instance_bank.cache_trt(instance_feature, anchor, cls, cached_confidence)
+        
+        prev_id, track_id, cached_track_id = \
+            self.instance_bank.get_track_id_trt(cls, temp_confidence, prev_id, cached_track_id)
+
         return (
             instance_feature,
             anchor,
             cls,
             qt,
             track_id,
-            tmp_outs[0],
-            tmp_outs[1],
-            tmp_outs[2],
-            tmp_outs[3],
-            tmp_outs[4],
-            tmp_outs[5],
+            cached_track_id,
+            cached_confidence,
+            cached_instance_feature,
+            cached_anchor,
+            prev_id,
         )
 
     def forward(
         self,
-        feature,
-        spatial_shapes,
-        level_start_index,
+        img,
         instance_feature,
         anchor,
         time_interval,
-        temp_instance_feature,
-        temp_anchor,
-        mask,
-        track_id,
         image_wh,
         lidar2img,
+        cached_instance_feature,
+        cached_anchor,
+        mask,
+        cached_track_id,
+        metas_global2lidar,
+        his_metas_lidar2global,
+        cached_confidence,
+        prev_id,
     ):
+        feature, spatial_shapes, level_start_index = self.model.extract_feat(img)
         head = self.model.head
         (
             instance_feature,
@@ -383,12 +363,11 @@ class Sparse4DHead2nd(nn.Module):
             cls,
             qt,
             track_id,
-            tmp_outs0,
-            tmp_outs1,
-            tmp_outs2,
-            tmp_outs3,
-            tmp_outs4,
-            tmp_outs5,
+            cached_track_id,
+            cached_confidence,
+            cached_instance_feature,
+            cached_anchor,
+            prev_id,
         ) = self.head_forward(
             head,
             feature,
@@ -397,12 +376,16 @@ class Sparse4DHead2nd(nn.Module):
             instance_feature,
             anchor,
             time_interval,
-            temp_instance_feature,
-            temp_anchor,
-            mask,
-            track_id,
             image_wh,
             lidar2img,
+            cached_instance_feature,
+            cached_anchor,
+            mask,
+            cached_track_id,
+            metas_global2lidar,
+            his_metas_lidar2global,
+            cached_confidence,
+            prev_id,
         )
         return (
             instance_feature,
@@ -410,13 +393,55 @@ class Sparse4DHead2nd(nn.Module):
             cls,
             qt,
             track_id,
-            tmp_outs0,
-            tmp_outs1,
-            tmp_outs2,
-            tmp_outs3,
-            tmp_outs4,
-            tmp_outs5,
+            cached_track_id,
+            cached_confidence,
+            cached_instance_feature,
+            cached_anchor,
+            prev_id,
         )
+
+
+class InstanceBank(nn.Module):
+    def __init__(self, model):
+        super(InstanceBank, self).__init__()
+        self.model = model
+    
+    ## get cacahe
+    # def forward(
+    #     self,
+    #     cached_anchor,
+    #     time_interval,
+    #     metas_global2lidar,
+    #     his_metas_lidar2global,
+    # ):
+    #     (instance_feature, anchor, cached_anchor, time_interval,) = \
+    #         self.model.head.instance_bank.get_cacahe_trt(cached_anchor, time_interval, metas_global2lidar, 
+    #                                                      his_metas_lidar2global)
+    #     return (instance_feature, anchor, cached_anchor, time_interval,)
+    
+    ## process cache
+    # def forward(
+    #     self,
+    #     instance_feature,
+    #     anchor,
+    #     cls,
+    #     cached_confidence,
+    # ):
+    #     (temp_confidence, cached_confidence, cached_feature, cached_anchor) = \
+    #     self.model.head.instance_bank.cache_trt(instance_feature, anchor, cls, cached_confidence)
+    #     return (temp_confidence, cached_confidence, cached_feature, cached_anchor,)
+    
+    ## get track_id
+    def forward(
+        self,
+        cls,
+        temp_confidence,
+        prev_id,
+        cached_track_id,
+    ):
+        prev_id, track_id, cached_track_id = \
+            self.model.head.instance_bank.get_track_id_trt(cls, temp_confidence, prev_id, cached_track_id)
+        return prev_id, track_id, cached_track_id
 
 
 def dummpy_input(
@@ -555,6 +580,7 @@ if __name__ == "__main__":
 
     BS = 1
     NUMS_CAM = 6
+    C = 3
     INPUT_H = 256
     INPUT_W = 704
     first_frame = True
@@ -574,115 +600,164 @@ if __name__ == "__main__":
     ) = dummpy_input(
         model, BS, NUMS_CAM, INPUT_H, INPUT_W, first_frame=first_frame, logger=logger
     )
+    dummy_img = torch.randn(BS, NUMS_CAM, C, INPUT_H, INPUT_W).cuda()
+    metas_global2lidar = torch.rand(1, 4, 4).cuda()
+    his_metas_lidar2global = torch.rand(1, 4, 4).cuda()
+    cached_confidence = torch.rand(1, 600).cuda()
+    prev_id = torch.tensor(900).cuda()
+    
+    if not args.bank:
+        if not args.o2:
+            backbone_first_frame_head = Sparse4DHead1st(copy.deepcopy(model))
+            logger.info("Export Sparse4DHead1st Onnx >>>>>>>>>>>>>>>>")
+            time.sleep(2)
+            with torch.no_grad():
+                torch.onnx.export(
+                    backbone_first_frame_head,
+                    (
+                        dummy_img,                
+                        # dummy_instance_feature,
+                        # dummy_anchor,
+                        # dummy_time_interval,
+                        dummy_image_wh,
+                        dummy_lidar2img,
+                    ),
+                    args.save_onnx1,
+                    input_names=[
+                        "img",
+                        # "instance_feature",
+                        # "anchor",
+                        # "time_interval",
+                        "image_wh",
+                        "lidar2img",
+                    ],
+                    output_names=[
+                        "pred_instance_feature",
+                        "pred_anchor",
+                        "pred_class_score",
+                        "pred_quality_score",
+                        "track_id",
+                        "cached_track_id",
+                        'cached_confidence',
+                        'cached_instance_feature',
+                        'cached_anchor',
+                        'prev_id',
+                    ],
+                    opset_version=15,
+                    do_constant_folding=True,
+                    export_params=True,
+                    verbose=True,
+                )
 
-    if not args.o2:
-        first_frame_head = Sparse4DHead1st(copy.deepcopy(model))
-        logger.info("Export Sparse4DHead1st Onnx >>>>>>>>>>>>>>>>")
+                onnx_orig = onnx.load(args.save_onnx1)
+                onnx_simp, check = simplify(onnx_orig)
+                assert check, "Simplified ONNX model could not be validated"
+                onnx.save(onnx_simp, args.save_onnx1)
+                logger.info(
+                    f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx1}" 🤗.'
+                )
+
+        backbone_second_frame_head = Sparse4DHead2nd(copy.deepcopy(model))
+        logger.info("Export Sparse4DHead2nd Onnx >>>>>>>>>>>>>>>>")
         time.sleep(2)
         with torch.no_grad():
             torch.onnx.export(
-                first_frame_head,
+                backbone_second_frame_head,
                 (
-                    dummy_feature,
-                    dummy_spatial_shapes,
-                    dummy_level_start_index,
+                    dummy_img,
                     dummy_instance_feature,
                     dummy_anchor,
                     dummy_time_interval,
                     dummy_image_wh,
                     dummy_lidar2img,
+                    dummy_temp_instance_feature,
+                    dummy_temp_anchor,
+                    dummy_mask,
+                    dummy_track_id,
+                    metas_global2lidar,
+                    his_metas_lidar2global,
+                    cached_confidence,
+                    prev_id,
                 ),
-                args.save_onnx1,
+                args.save_onnx2,
                 input_names=[
-                    "feature",
-                    "spatial_shapes",
-                    "level_start_index",
+                    "img",
                     "instance_feature",
                     "anchor",
                     "time_interval",
                     "image_wh",
                     "lidar2img",
+                    "cached_instance_feature",
+                    "cached_anchor",
+                    "mask",
+                    "cached_track_id",
+                    "metas_global2lidar",
+                    "his_metas_lidar2global",
+                    'cached_confidence',
+                    'prev_id',
                 ],
                 output_names=[
                     "pred_instance_feature",
                     "pred_anchor",
                     "pred_class_score",
                     "pred_quality_score",
-                    "tmp_outs0",
-                    "tmp_outs1",
-                    "tmp_outs2",
-                    "tmp_outs3",
-                    "tmp_outs4",
-                    "tmp_outs5",
+                    "track_id",
+                    "cached_track_id",
+                    'cached_confidence',
+                    'cached_instance_feature',
+                    'cached_anchor',
+                    'prev_id',
                 ],
                 opset_version=15,
                 do_constant_folding=True,
-                verbose=False,
+                export_params=True,
+                verbose=True,
             )
 
-            onnx_orig = onnx.load(args.save_onnx1)
+            onnx_orig = onnx.load(args.save_onnx2)
             onnx_simp, check = simplify(onnx_orig)
-            assert check, "Simplified ONNX model could not be validated"
-            onnx.save(onnx_simp, args.save_onnx1)
-            logger.info(
-                f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx1}" 🤗.'
-            )
+            assert check, "Simplified ONNX model could not be validated!"
+            onnx.save(onnx_simp, args.save_onnx2)
+            logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx2}" 🤗.')
+    else:
+        instance_bank = InstanceBank(copy.deepcopy(model))
+        print("Export InstanceBank Onnx >>>>>>>>>>>>>>>>")
+        
+        # time_interval = torch.tensor([0.5]).cuda()
+        # metas_global2lidar = torch.rand(1, 4, 4).cuda()
+        # his_metas_lidar2global = torch.rand(1, 4, 4).cuda()
+        # inutputs = (dummy_temp_anchor, time_interval, metas_global2lidar, his_metas_lidar2global)
+        # input_names = ['cached_anchor', 'time_interval', 'metas_global2lidar', 'his_metas_lidar2global']
+        # output_names = ['instance_feature', 'anchor', 'cached_anchor', 'time_interval']
+        # onnx_save_path = "deploy/onnx/bank_get.onnx"
+        # with torch.no_grad():
+        #     torch.onnx.export(instance_bank, inutputs, onnx_save_path, input_names=input_names, output_names=output_names, 
+        #                       opset_version=11, export_params=True, verbose=True)
+        #     os.system(f'onnxsim {onnx_save_path} {onnx_save_path}')
+        #     os.system(f'trtexec --onnx={onnx_save_path} --saveEngine={onnx_save_path.replace(".onnx", ".engine")}')
+        
+        # cls = torch.rand(1, 900, 10).cuda()
+        # cached_confidence = torch.rand(1, 600).cuda()
+        # inutputs = (dummy_instance_feature, dummy_anchor, cls, cached_confidence)
+        # input_names = ['instance_feature', 'anchor', 'cls', 'cached_confidence']
+        # output_names = ['temp_confidence', 'cached_confidence', 'cached_feature', 'cached_anchor']
+        # onnx_save_path = "deploy/onnx/bank_cache.onnx"
+        # with torch.no_grad():
+        #     torch.onnx.export(instance_bank, inutputs, onnx_save_path, input_names=input_names, output_names=output_names, 
+        #                       opset_version=15, export_params=True, verbose=True)
+        #     os.system(f'onnxsim {onnx_save_path} {onnx_save_path}')
+        #     os.system(f'trtexec --onnx={onnx_save_path} --saveEngine={onnx_save_path.replace(".onnx", ".engine")}')
 
-    head = Sparse4DHead2nd(copy.deepcopy(model))
-    logger.info("Export Sparse4DHead2nd Onnx >>>>>>>>>>>>>>>>")
-    time.sleep(2)
-    with torch.no_grad():
-        torch.onnx.export(
-            head,
-            (
-                dummy_feature,
-                dummy_spatial_shapes,
-                dummy_level_start_index,
-                dummy_instance_feature,
-                dummy_anchor,
-                dummy_time_interval,
-                dummy_temp_instance_feature,
-                dummy_temp_anchor,
-                dummy_mask,
-                dummy_track_id,
-                dummy_image_wh,
-                dummy_lidar2img,
-            ),
-            args.save_onnx2,
-            input_names=[
-                "feature",
-                "spatial_shapes",
-                "level_start_index",
-                "instance_feature",
-                "anchor",
-                "time_interval",
-                "temp_instance_feature",
-                "temp_anchor",
-                "mask",
-                "track_id",
-                "image_wh",
-                "lidar2img",
-            ],
-            output_names=[
-                "pred_instance_feature",
-                "pred_anchor",
-                "pred_class_score",
-                "pred_quality_score",
-                "pred_track_id",
-                "tmp_outs0",
-                "tmp_outs1",
-                "tmp_outs2",
-                "tmp_outs3",
-                "tmp_outs4",
-                "tmp_outs5",
-            ],
-            opset_version=15,
-            do_constant_folding=True,
-            verbose=False,
-        )
-
-        onnx_orig = onnx.load(args.save_onnx2)
-        onnx_simp, check = simplify(onnx_orig)
-        assert check, "Simplified ONNX model could not be validated!"
-        onnx.save(onnx_simp, args.save_onnx2)
-        logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx2}" 🤗.')
+        cls = torch.rand(1, 900, 10).cuda()
+        temp_confidence = torch.rand(1, 900).cuda()
+        prev_id = torch.tensor(900).cuda()
+        cached_track_id = torch.ones(1, 900).cuda()
+        inutputs = (cls, temp_confidence, prev_id, cached_track_id)
+        input_names = ['cls', 'temp_confidence', 'prev_id', 'cached_track_id']
+        output_names = ['prev_id', 'track_id', 'cached_track_id']
+        onnx_save_path = "deploy/onnx/bank_get_track_id.onnx"
+        with torch.no_grad():
+            torch.onnx.export(instance_bank, inutputs, onnx_save_path, input_names=input_names, output_names=output_names, 
+                                opset_version=15, export_params=True, verbose=True)
+            os.system(f'onnxsim {onnx_save_path} {onnx_save_path}')
+            os.system(f'trtexec --onnx={onnx_save_path} --saveEngine={onnx_save_path.replace(".onnx", ".engine")}')
