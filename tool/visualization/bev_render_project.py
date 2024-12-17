@@ -5,6 +5,9 @@ import json
 import torch
 import matplotlib
 import matplotlib.pyplot as plt
+import pyquaternion
+import copy
+from shapely.geometry import LineString
 
 X, Y, Z, W, L, H, SIN_YAW, COS_YAW, VX, VY, VZ = list(range(11))  # undecoded
 CNS, YNS = 0, 1  # centerness and yawness indices in quality
@@ -17,6 +20,35 @@ EGO_BBOX = [[0,
     2,
     2,
     0]]
+
+def project_points(key_points, lidar2img, image_wh=None):
+    """
+    Args:
+        key_points : Shape[1, 1220, 13, 3].
+    Return:
+        key_points2d : Shape[1, 6, 1220, 13, 2].
+
+
+    """
+    bs, num_anchor, num_pts = key_points.shape[:3]
+    print("*************************")
+    print(key_points.shape, lidar2img.shape)
+    pts_extend = torch.cat(
+        [key_points, torch.ones_like(key_points[..., :1])], dim=-1
+    )
+    # points_2d = torch.matmul(
+    #     lidar2img[:, :, None, None], pts_extend[:, None, ..., None]
+    # ).squeeze(-1)
+    points_2d = torch.matmul(
+        lidar2img[:, :, None, None], pts_extend[:, None, ..., None]
+    )[..., 0]
+    points_2d = points_2d[..., :2] / torch.clamp(points_2d[..., 2:3], min=1e-5)
+    print("*************************")
+    # torch.Size([1, 1, 8, 3]) torch.Size([1, 6, 4, 4]) torch.Size([1, 6, 1, 8, 2])
+    print(key_points.shape, lidar2img.shape, points_2d.shape)
+    if image_wh is not None:
+        points_2d = points_2d / image_wh[:, :, None, None]
+    return points_2d
 
 def box3d_to_corners(box3d):
     if isinstance(box3d, torch.Tensor):
@@ -42,7 +74,7 @@ def box3d_to_corners(box3d):
 
 CMD_LIST = ['Turn Right', 'Turn Left', 'Go Straight']
 COLOR_VECTORS = ['cornflowerblue', 'royalblue', 'slategrey']
-SCORE_THRESH = 0.3
+SCORE_THRESH = 0.02
 MAP_SCORE_THRESH = 0.3
 color_mapping = np.asarray([
     [255, 179, 0],
@@ -158,25 +190,27 @@ class BEVRender:
         self.save_fig(save_path_gt)
 
         if with_infer:
-            origin_path_pre = '/home/ma-user/work/data/ali_odd'
-            local_path_pre = '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd'
-            img_path = data['cams']['CAM_FRONT_WIDE']['data_path']
-            # # origin_path_pre = './data/nuscenes'
-            # # local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes'
-            # origin_path_pre = './data/nuscenes/samples'
-            # local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes_8clips_cam'
-            # img_path = data['cams']['CAM_FRONT']['data_path']
+            # origin_path_pre = '/home/ma-user/work/data/ali_odd'
+            # local_path_pre = '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd'
+            # img_path = data['cams']['CAM_FRONT_WIDE']['data_path']
+            # origin_path_pre = './data/nuscenes'
+            # local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes'
+            origin_path_pre = './data/nuscenes/samples'
+            local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes_8clips_cam'
+            img_path = data['cams']['CAM_FRONT']['data_path']
             img_path = img_path.replace(origin_path_pre, local_path_pre)
-            save_result_path_prefix = img_path.split("/sample")[0]
-            save_result_path_suffix = img_path.split("/camera0")[1].split(".jpg")[0]
-            # save_result_path_prefix = img_path.split("/CAM_FRONT/")[0]
-            # save_result_path_suffix = img_path.split("/CAM_FRONT/")[1].split(".jpg")[0]
-            save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results_dz_detect_private")
+            # save_result_path_prefix = img_path.split("/sample")[0]
+            # save_result_path_suffix = img_path.split("/camera0")[1].split(".jpg")[0]
+            save_result_path_prefix = img_path.split("/CAM_FRONT/")[0]
+            save_result_path_suffix = img_path.split("/CAM_FRONT/")[1].split(".jpg")[0]
+            save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results_nuscene_8clips")
             save_result_path = os.path.join(save_result_path_dir, save_result_path_suffix + ".json")
             result = json.load(open(save_result_path, "r"))
             
             self.reset_canvas()
-            self.draw_detection_pred(result)
+            # self.draw_detection_pred(result)
+            lidar2img = self.get_data_info(data)
+            self.draw_detection_project(result, data, lidar2img)
             # self.draw_track_pred(result)
             # self.draw_motion_pred(result)
             # self.draw_map_pred(result)
@@ -228,8 +262,6 @@ class BEVRender:
             score = result['scores_3d'][i]
             if score < SCORE_THRESH: 
                 continue
-            print("=============")
-            print(score)
             color = color_mapping[i % len(color_mapping)]
 
             # draw corners
@@ -244,6 +276,110 @@ class BEVRender:
             x = [forward_center[0], center[0]]
             y = [forward_center[1], center[1]]
             self.axes.plot(x, y, color=color, linewidth=3, linestyle='-')
+
+    def draw_detection_project(self, result, data, lidar2img):
+        if not (self.plot_choices['draw_pred'] and self.plot_choices['det'] and "boxes_3d" in result):
+            return
+
+        bbox3d = np.array(data["gt_boxes"])
+        bbox3d = box3d_to_corners(np.array(data['gt_boxes']))
+        bbox3d = torch.tensor(bbox3d).unsqueeze(0).double()
+        bboxes_2d = project_points(bbox3d, torch.tensor(lidar2img).unsqueeze(0).double())
+
+        bboxes_2d = bboxes_2d.permute(0, 2, 3, 1, 4)[:, :, :, 0, :].squeeze(0)
+        print("$$$$$$$$$$$$$$$$$$")
+        print(bboxes_2d)
+        for i in range(bboxes_2d.shape[0]):
+            color = color_mapping[i % len(color_mapping)]
+
+            x = bboxes_2d[i, :, 0]
+            y = bboxes_2d[i, :, 1]
+
+            self.axes.plot(x, y, color=color, linewidth=3, linestyle='-')
+
+    def anno2geom(self, annos):
+        map_geoms = {}
+        for label, anno_list in annos.items():
+            map_geoms[label] = []
+            for anno in anno_list:
+                geom = LineString(np.array(anno))
+                map_geoms[label].append(geom)
+        return map_geoms
+
+    def get_data_info(self, data):
+        """format data dict fed to pipeline.
+        img_filename: List[str] length=6(v)
+        """
+
+        info = data
+
+        input_dict = dict(
+            sample_scene=info["scene_token"],
+            sample_idx=info["token"],
+            pts_filename=info["lidar_path"],
+            sweeps=info["sweeps"],
+            timestamp=info["timestamp"] / 1e6,  # 单位为秒
+            lidar2ego_translation=info["lidar2ego_translation"],
+            lidar2ego_rotation=info["lidar2ego_rotation"],
+            ego2global_translation=info["ego2global_translation"],
+            ego2global_rotation=info["ego2global_rotation"],
+
+            #prev_idx=info['prev'],
+            #next_idx=info['next'],
+            #can_bus= np.array(info['can_bus']),
+            #frame_idx=info['frame_idx'],
+            map_annos = info['map_annos'],
+            fut_valid_flag=info['fut_valid_flag'],
+            #map_location=info['map_location'],
+            ego_his_trajs=np.array(info['gt_ego_his_trajs']),
+            ego_fut_trajs=np.array(info['gt_ego_fut_trajs']),
+            ego_fut_masks= np.array(info['gt_ego_fut_masks']),
+            ego_fut_cmd=np.array(info['gt_ego_fut_cmd']),
+            ego_lcf_feat= np.array(info['gt_ego_lcf_feat'])
+        )
+
+        lidar2ego = np.eye(4)
+        lidar2ego[:3, :3] = pyquaternion.Quaternion(
+            info["lidar2ego_rotation"]
+        ).rotation_matrix
+        lidar2ego[:3, 3] = np.array(info["lidar2ego_translation"])
+
+        ego2global = np.eye(4)
+        ego2global[:3, :3] = pyquaternion.Quaternion(
+            info["ego2global_rotation"]
+        ).rotation_matrix
+        ego2global[:3, 3] = np.array(info["ego2global_translation"])
+
+        input_dict["lidar2global"] = ego2global @ lidar2ego
+
+        map_geoms = self.anno2geom(info["map_annos"])
+        input_dict["map_geoms"] = map_geoms
+
+        image_paths = []
+        lidar2img_rts = []
+        cam_intrinsic = []
+        for cam_type, cam_info in info["cams"].items():
+            data_path = cam_info["data_path"].replace('./data/nuscenes/samples', '/home/chengjiafeng/work/data/nuscene/nuscenes_8clips_cam')
+            # data_path = cam_info["data_path"].replace('/home/ma-user/work/data/ali_odd', '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd')
+
+            print("==============")
+            print(data_path)
+            image_paths.append(data_path)
+            # obtain lidar to image transformation matrix
+            lidar2cam_r = np.linalg.inv(np.array(cam_info["sensor2lidar_rotation"]))
+            lidar2cam_t = cam_info["sensor2lidar_translation"] @ lidar2cam_r.T  # todo
+
+            lidar2cam_rt = np.eye(4)
+            lidar2cam_rt[:3, :3] = lidar2cam_r.T
+            lidar2cam_rt[3, :3] = -lidar2cam_t
+            intrinsic = copy.deepcopy(np.array(cam_info["cam_intrinsic"]))
+            cam_intrinsic.append(intrinsic)
+            viewpad = np.eye(4)
+            viewpad[: intrinsic.shape[0], : intrinsic.shape[1]] = intrinsic
+            lidar2img_rt = viewpad @ lidar2cam_rt.T
+            lidar2img_rts.append(lidar2img_rt)
+        return lidar2img_rts
+
 
     def draw_track_pred(self, result):
         if not (self.plot_choices['draw_pred'] and self.plot_choices['track'] and "anchor_queue" in result):
@@ -405,12 +541,12 @@ class BEVRender:
 
         # draw corners
         gt_ego_lcf_feat = data['gt_ego_lcf_feat']
-        # EGO_BBOX[0][-1] = np.arctan2(gt_ego_lcf_feat[1], gt_ego_lcf_feat[0])
+        EGO_BBOX[0][-1] = np.arctan2(gt_ego_lcf_feat[1], gt_ego_lcf_feat[0])
         corners = box3d_to_corners(np.array(EGO_BBOX))[0, [0, 3, 7, 4, 0]]
         x = corners[:, 0]
         y = corners[:, 1]
         color = [0, 0, 0]
-        self.axes.plot(x, y, color=color, linewidth=6, linestyle='-')
+        self.axes.plot(x, y, color=color, linewidth=6, linestyle='--')
 
 
     def draw_planning_pred(self, data, result, top_k=3):

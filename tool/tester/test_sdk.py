@@ -8,7 +8,7 @@ import tempfile
 import numpy as np
 import pycocotools.mask as mask_util
 import torch.distributed as dist
-
+import json
 from tool.utils.logging import ProgressBar
 from tool.utils.dist_utils import get_dist_info
 
@@ -16,7 +16,7 @@ from tool.utils.dist_utils import get_dist_info
 __all__ = ["single_gpu_test", "custom_multi_gpu_test"]
 
 
-def single_gpu_test(model, data_loader):
+def single_gpu_test(model, data_loader, is_vis):
     model.eval()
     results = []
     dataset = data_loader.dataset
@@ -30,6 +30,25 @@ def single_gpu_test(model, data_loader):
 
         results.extend(result)
 
+        if is_vis:
+            filename = data['img_metas'].data[0][0]['filename'][0]
+            save_result_path_prefix = filename.split("/CAM_FRONT/")[0]
+            save_result_path_suffix = filename.split("/CAM_FRONT/")[1].split(".jpg")[0]
+            save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results_nuscene_8clips")
+            os.makedirs(save_result_path_dir, exist_ok=True)
+            save_result_path = os.path.join(save_result_path_dir, save_result_path_suffix + ".json")
+            # print("infer result writes to", save_result_path)
+            def tensor_to_list(obj):
+                if isinstance(obj, torch.Tensor):
+                    return obj.tolist()
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, list):
+                    return [tensor_to_list(item) for item in obj]
+                return obj
+            result_serializable = {k: tensor_to_list(v) for k, v in result[0].items()}
+            with open(save_result_path, "w") as f:
+                json.dump(result_serializable, f, indent=True, ensure_ascii=False)
         for _ in range(batch_size):
             prog_bar.update()
     return results

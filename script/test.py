@@ -21,13 +21,24 @@ from modules.sparse4d_detector import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train E2E detector")
-    parser.add_argument("config", help="train config file path")
     parser.add_argument(
-        "--checkpoint", default="ckpt/sparse4dv3_r50.pth", help="checkpoint file"
+        "--config",
+        default="dataset/config/sparse4d_temporal_r50_1x4_bs22_256x704_VAD_local.py",
+        help="train config file path",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        default="/home/chengjiafeng/work/data/nuscene/dazhuo/nuscene_retrain_detect_latest.pth",
+        help="checkpoint file",
     )
     parser.add_argument("--launcher", choices=["none", "pytorch"], default="none")
     parser.add_argument(
         "--deterministic",
+        action="store_true",
+        help="whether to set deterministic options for CUDNN backend.",
+    )
+    parser.add_argument(
+        "--vis",
         action="store_true",
         help="whether to set deterministic options for CUDNN backend.",
     )
@@ -90,7 +101,7 @@ def main():
     ## GPU Inference
     if not distributed:
         model = E2EDataParallel(model, device_ids=[0])
-        outputs = single_gpu_test(model, data_loader)
+        outputs = single_gpu_test(model, data_loader, args.vis)
     else:
         model = E2EDistributedDataParallel(
             model.cuda(),
