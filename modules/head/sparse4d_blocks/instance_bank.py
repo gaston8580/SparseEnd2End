@@ -185,7 +185,7 @@ class InstanceBank(nn.Module):
             time_interval = torch.where(torch.logical_and(time_interval != 0, mask), time_interval, 
                                         time_interval.new_tensor(self.default_time_interval),)
         else:
-            cached_anchor = None
+            cached_anchor, mask = None, None
             time_interval = instance_feature.new_tensor([self.default_time_interval] * batch_size)
 
         return (
@@ -193,6 +193,7 @@ class InstanceBank(nn.Module):
             anchor,
             cached_anchor,
             time_interval,
+            mask,
         )
 
     def update(self, instance_feature, anchor, confidence):
@@ -308,18 +309,16 @@ class InstanceBank(nn.Module):
         self.update_track_id(track_id, confidence)
         return track_id
     
-    def get_track_id_trt(self, cls, temp_confidence=None, prev_id=0, cached_track_id=None):
+    def get_track_id_trt(self, cls, temp_confidence=None, prev_id=None, cached_track_id=None):
         cls = cls.max(dim=-1).values.sigmoid()  # (bs, num_querys)
         track_id = cls.new_full(cls.shape, -1).long()
-        prev_id = prev_id.long()
-        if cached_track_id is not None:
-            cached_track_id = cached_track_id.long()
+        cached_track_id = cached_track_id.long() if cached_track_id is not None else None
 
         if cached_track_id is not None and cached_track_id.shape[0] == track_id.shape[0]:
             track_id = cached_track_id
 
         num_new_instance = self.num_anchor - self.num_temp_instances
-        new_ids = torch.arange(num_new_instance).to(track_id) + prev_id  # prev_id第一帧为0
+        new_ids = torch.arange(num_new_instance).to(track_id.device) + prev_id  # prev_id第一帧为0
         track_id[:, -num_new_instance:] = new_ids
         prev_id += num_new_instance
         cached_track_id = self.update_track_id_trt(temp_confidence, track_id, cls)
@@ -349,8 +348,8 @@ class InstanceBank(nn.Module):
                 temp_conf = confidence
         else:
             temp_conf = temp_confidence
+        cached_track_id = track_id.new_full(track_id.shape, -1).long()
         track_id = topk(temp_conf, self.num_temp_instances, track_id)[1][0]
         track_id = track_id.view(1, self.num_temp_instances)  # (bs, k)
-        cached_track_id = torch.ones(1, self.num_anchor).cuda() * -1.0
         cached_track_id[:, : self.num_temp_instances] = track_id  # (bs, num_querys)
         return cached_track_id

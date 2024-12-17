@@ -52,10 +52,10 @@ def parse_args():
         default="deploy/onnx/sparse4dbackbone_head2nd.onnx",
     )
     parser.add_argument(
-        "--o2", default=0, action="store_true", help="only export sparse4dhead2nd onnx."
+        "--export_2nd", default=1, action="store_true", help="export sparse4dhead2nd or sparse4dhead1nd onnx."
     )
     parser.add_argument(
-        "--bank", default=0, action="store_true", help="whether export instance_bank onnx model."
+        "--export_bank", default=0, action="store_true", help="whether export instance_bank onnx model."
     )
     args = parser.parse_args()
     return args
@@ -69,26 +69,20 @@ class Sparse4DHead1st(nn.Module):
     @staticmethod
     def head_forward(
         self,
-        feature,
-        spatial_shapes,
-        level_start_index,
-        # instance_feature,
-        # anchor,
-        # time_interval,
+        feature_maps,
         image_wh,
         lidar2img,
     ):  
         # Instance bank get inputs
         cached_instance_feature = None
         temp_anchor_embed = None
-        (instance_feature, anchor, _, time_interval) = self.instance_bank.get_cacahe_trt()
+        (instance_feature, anchor, _, time_interval, _) = self.instance_bank.get_cacahe_trt()
 
         # DFA inputs
         metas = {"image_wh": image_wh, "lidar2img": lidar2img,}
 
         anchor_embed = self.anchor_encoder(anchor)
 
-        feature_maps = [feature, spatial_shapes, level_start_index]
         prediction = []
         tmp_outs = []
         for i, op in enumerate(self.operation_order):
@@ -160,8 +154,7 @@ class Sparse4DHead1st(nn.Module):
             self.instance_bank.cache_trt(instance_feature, anchor, cls)
         
         prev_id = torch.tensor(0, dtype=torch.int64).cuda()
-        prev_id, track_id, cached_track_id = \
-            self.instance_bank.get_track_id_trt(cls, temp_confidence, prev_id)
+        prev_id, track_id, cached_track_id = self.instance_bank.get_track_id_trt(cls, temp_confidence, prev_id)
 
         return (
             instance_feature,
@@ -179,25 +172,69 @@ class Sparse4DHead1st(nn.Module):
     def forward(
         self,
         img,
-        # instance_feature,
-        # anchor,
-        # time_interval,
         image_wh,
         lidar2img,
     ):
-        feature, spatial_shapes, level_start_index = self.model.extract_feat(img)
+        feature_maps = self.model.extract_feat(img)  # feature, spatial_shapes, level_start_index
 
+        # det head forward
         head = self.model.head
-        return self.head_forward(
+        (
+            det_instance_feature,
+            det_anchor,
+            det_cls,
+            det_qt,
+            det_track_id,
+            det_cached_track_id,
+            det_cached_confidence,
+            det_cached_instance_feature,
+            det_cached_anchor,
+            det_prev_id,  # 300
+        ) = self.head_forward(
             head,
-            feature,
-            spatial_shapes,
-            level_start_index,
-            # instance_feature,
-            # anchor,
-            # time_interval,
+            feature_maps,
             image_wh,
             lidar2img,
+        )
+
+        # map head forward
+        map_head = self.model.map_head
+        (
+            map_instance_feature,
+            map_anchor,
+            map_cls,
+            map_qt,
+            map_track_id,
+            map_cached_track_id,
+            map_cached_confidence,
+            map_cached_instance_feature,
+            map_cached_anchor,
+            map_prev_id,  # 67
+        ) = self.head_forward(
+            map_head,
+            feature_maps,
+            image_wh,
+            lidar2img,
+        )
+
+        # motion head forward
+        motion_head = self.model.motion_head
+        data = {'ego_his_trajs': torch.randn(1, 2, 2).cuda()}
+        plan_traj = motion_head(det_instance_feature, map_instance_feature, data)
+
+        return (
+            ## det outputs
+            det_cached_track_id,
+            det_cached_confidence,
+            det_cached_instance_feature,
+            det_cached_anchor,
+            ## map outputs
+            map_cached_track_id,
+            map_cached_confidence,
+            map_cached_instance_feature,
+            map_cached_anchor,
+            ## motion outputs
+            plan_traj
         )
 
 
@@ -209,26 +246,19 @@ class Sparse4DHead2nd(nn.Module):
     @staticmethod
     def head_forward(
         self,
-        feature,
-        spatial_shapes,
-        level_start_index,
-        instance_feature,
-        anchor,
+        feature_maps,
         time_interval,
         image_wh,
         lidar2img,
         cached_instance_feature,  # cache
         cached_anchor,            # cache
-        mask,
         cached_track_id,
         metas_global2lidar,
         his_metas_lidar2global,
         cached_confidence,
         prev_id,
     ):
-        mask = mask.bool()  # TensorRT binding type for bool input is NoneType.
-
-        (instance_feature, anchor, cached_anchor, time_interval) = \
+        (instance_feature, anchor, cached_anchor, time_interval, mask) = \
             self.instance_bank.get_cacahe_trt(cached_anchor, time_interval, metas_global2lidar, his_metas_lidar2global)
 
         anchor_embed = self.anchor_encoder(anchor)
@@ -237,7 +267,6 @@ class Sparse4DHead2nd(nn.Module):
         # DAF inputs
         metas = {"lidar2img": lidar2img, "image_wh": image_wh,}
 
-        feature_maps = [feature, spatial_shapes, level_start_index]
         prediction = []
         tmp_outs = []
         for i, op in enumerate(self.operation_order):
@@ -341,63 +370,100 @@ class Sparse4DHead2nd(nn.Module):
     def forward(
         self,
         img,
-        instance_feature,
-        anchor,
         time_interval,
         image_wh,
         lidar2img,
-        cached_instance_feature,
-        cached_anchor,
-        mask,
-        cached_track_id,
+        det_cached_instance_feature,
+        det_cached_anchor,
+        det_cached_track_id,
         metas_global2lidar,
         his_metas_lidar2global,
-        cached_confidence,
-        prev_id,
+        det_cached_confidence,
+        det_prev_id,
+        map_cached_instance_feature,
+        map_cached_anchor,
+        map_cached_track_id,
+        map_cached_confidence,
+        map_prev_id,
     ):
-        feature, spatial_shapes, level_start_index = self.model.extract_feat(img)
+        feature_maps = self.model.extract_feat(img)  # feature, spatial_shapes, level_start_index
+
+        # det head forward
         head = self.model.head
         (
-            instance_feature,
-            anchor,
-            cls,
-            qt,
-            track_id,
-            cached_track_id,
-            cached_confidence,
-            cached_instance_feature,
-            cached_anchor,
-            prev_id,
+            det_instance_feature,
+            det_anchor,
+            det_cls,
+            det_qt,
+            det_track_id,
+            det_cached_track_id,
+            det_cached_confidence,
+            det_cached_instance_feature,
+            det_cached_anchor,
+            det_prev_id,
         ) = self.head_forward(
             head,
-            feature,
-            spatial_shapes,
-            level_start_index,
-            instance_feature,
-            anchor,
+            feature_maps,
             time_interval,
             image_wh,
             lidar2img,
-            cached_instance_feature,
-            cached_anchor,
-            mask,
-            cached_track_id,
+            det_cached_instance_feature,
+            det_cached_anchor,
+            det_cached_track_id,
             metas_global2lidar,
             his_metas_lidar2global,
-            cached_confidence,
-            prev_id,
+            det_cached_confidence,
+            det_prev_id,
         )
+
+        # map head forward
+        map_head = self.model.map_head
+        (
+            map_instance_feature,
+            map_anchor,
+            map_cls,
+            map_qt,
+            map_track_id,
+            map_cached_track_id,
+            map_cached_confidence,
+            map_cached_instance_feature,
+            map_cached_anchor,
+            map_prev_id,
+        ) = self.head_forward(
+            map_head,
+            feature_maps,
+            time_interval,
+            image_wh,
+            lidar2img, 
+            map_cached_instance_feature,
+            map_cached_anchor,
+            map_cached_track_id,
+            metas_global2lidar,
+            his_metas_lidar2global,
+            map_cached_confidence,
+            map_prev_id,
+        )
+        
+        # motion head forward
+        motion_head = self.model.motion_head
+        data = {'ego_his_trajs': torch.randn(1, 2, 2).cuda()}
+        plan_traj = motion_head(det_instance_feature, map_instance_feature, data)
+
         return (
-            instance_feature,
-            anchor,
-            cls,
-            qt,
-            track_id,
-            cached_track_id,
-            cached_confidence,
-            cached_instance_feature,
-            cached_anchor,
-            prev_id,
+            # det outputs
+            det_cached_track_id,
+            det_cached_confidence,
+            det_cached_instance_feature,
+            det_cached_anchor,
+            det_prev_id,
+            # map outputs
+            map_cached_track_id,
+            map_cached_confidence,
+            map_cached_instance_feature,
+            map_cached_anchor,
+            map_prev_id,
+            # motion outputs
+            plan_traj,
         )
 
 
@@ -601,13 +667,30 @@ if __name__ == "__main__":
         model, BS, NUMS_CAM, INPUT_H, INPUT_W, first_frame=first_frame, logger=logger
     )
     dummy_img = torch.randn(BS, NUMS_CAM, C, INPUT_H, INPUT_W).cuda()
+
+    img = dummy_img
+    time_interval = dummy_time_interval
+    image_wh = dummy_image_wh
+    lidar2img = dummy_lidar2img
     metas_global2lidar = torch.rand(1, 4, 4).cuda()
     his_metas_lidar2global = torch.rand(1, 4, 4).cuda()
-    cached_confidence = torch.rand(1, 600).cuda()
-    prev_id = torch.tensor(900).cuda()
+    # det inputs
+    num_det, num_det_cache = 900, 600
+    det_cached_instance_feature = dummy_temp_instance_feature
+    det_cached_anchor = dummy_temp_anchor
+    det_cached_track_id = dummy_track_id
+    det_cached_confidence = torch.rand(1, num_det_cache).cuda()
+    det_prev_id = torch.tensor(num_det - num_det_cache).cuda()
+    # map inputs
+    num_map, num_map_cache = 100, 33
+    map_cached_instance_feature = torch.rand(1, num_map_cache, 256).cuda()
+    map_cached_anchor = torch.rand(1, num_map_cache, 40).cuda()
+    map_cached_track_id = -1 * torch.ones((1, num_map)).int().cuda()
+    map_cached_confidence = torch.rand(1, num_map_cache).cuda()
+    map_prev_id = torch.tensor(num_map - num_map_cache).cuda()
     
-    if not args.bank:
-        if not args.o2:
+    if not args.export_bank:
+        if not args.export_2nd:
             backbone_first_frame_head = Sparse4DHead1st(copy.deepcopy(model))
             logger.info("Export Sparse4DHead1st Onnx >>>>>>>>>>>>>>>>")
             time.sleep(2)
@@ -616,35 +699,32 @@ if __name__ == "__main__":
                     backbone_first_frame_head,
                     (
                         dummy_img,                
-                        # dummy_instance_feature,
-                        # dummy_anchor,
-                        # dummy_time_interval,
                         dummy_image_wh,
                         dummy_lidar2img,
                     ),
                     args.save_onnx1,
                     input_names=[
                         "img",
-                        # "instance_feature",
-                        # "anchor",
-                        # "time_interval",
                         "image_wh",
                         "lidar2img",
                     ],
                     output_names=[
-                        "pred_instance_feature",
-                        "pred_anchor",
-                        "pred_class_score",
-                        "pred_quality_score",
-                        "track_id",
-                        "cached_track_id",
-                        'cached_confidence',
-                        'cached_instance_feature',
-                        'cached_anchor',
-                        'prev_id',
+                        ## det outputs
+                        "det_cached_track_id",
+                        'det_cached_confidence',
+                        'det_cached_instance_feature',
+                        'det_cached_anchor',
+                        ## map outputs
+                        'map_cached_track_id',
+                        'map_cached_confidence',
+                        'map_cached_instance_feature',
+                        'map_cached_anchor',
+                        ## motion outputs
+                        'plan_traj',
                     ],
+                    # output_names=None,
                     opset_version=15,
-                    do_constant_folding=True,
+                    do_constant_folding=False,
                     export_params=True,
                     verbose=True,
                 )
@@ -653,72 +733,72 @@ if __name__ == "__main__":
                 onnx_simp, check = simplify(onnx_orig)
                 assert check, "Simplified ONNX model could not be validated"
                 onnx.save(onnx_simp, args.save_onnx1)
-                logger.info(
-                    f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx1}" 🤗.'
+                logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx1}" 🤗.')
+        else:
+            backbone_second_frame_head = Sparse4DHead2nd(copy.deepcopy(model))
+            logger.info("Export Sparse4DHead2nd Onnx >>>>>>>>>>>>>>>>")
+            time.sleep(2)
+            with torch.no_grad():
+                torch.onnx.export(
+                    backbone_second_frame_head,
+                    (
+                        img,
+                        time_interval,
+                        image_wh,
+                        lidar2img,
+                        det_cached_instance_feature,
+                        det_cached_anchor,
+                        det_cached_track_id,
+                        metas_global2lidar,
+                        his_metas_lidar2global,
+                        det_cached_confidence,
+                        det_prev_id,
+                        map_cached_instance_feature,
+                        map_cached_anchor,
+                        map_cached_track_id,
+                        map_cached_confidence,
+                        map_prev_id,
+                    ),
+                    args.save_onnx2,
+                    input_names=[
+                        "img",
+                        "time_interval",
+                        "image_wh",
+                        "lidar2img",
+                        "det_cached_instance_feature",
+                        "det_cached_anchor",
+                        "det_cached_track_id",
+                        "metas_global2lidar",
+                        "his_metas_lidar2global",
+                        "det_cached_confidence","""  """
+                        "det_prev_id",
+                        "map_cached_instance_feature",
+                        "map_cached_anchor",
+                        "map_cached_track_id",
+                        "map_cached_confidence",
+                        "map_prev_id",
+                    ],
+                    output_names=[
+                        'det_cached_track_id',
+                        'det_cached_confidence',
+                        'det_cached_instance_feature',
+                        'det_cached_anchor',
+                        'det_prev_id',
+                        'map_cached_track_id',
+                        'map_cached_confidence',
+                        'map_cached_instance_feature',
+                        'map_cached_anchor',
+                        'map_prev_id',
+                        'plan_traj',
+                    ],
+                    opset_version=15,
+                    do_constant_folding=False,
+                    export_params=True,
+                    verbose=True,
                 )
 
-        backbone_second_frame_head = Sparse4DHead2nd(copy.deepcopy(model))
-        logger.info("Export Sparse4DHead2nd Onnx >>>>>>>>>>>>>>>>")
-        time.sleep(2)
-        with torch.no_grad():
-            torch.onnx.export(
-                backbone_second_frame_head,
-                (
-                    dummy_img,
-                    dummy_instance_feature,
-                    dummy_anchor,
-                    dummy_time_interval,
-                    dummy_image_wh,
-                    dummy_lidar2img,
-                    dummy_temp_instance_feature,
-                    dummy_temp_anchor,
-                    dummy_mask,
-                    dummy_track_id,
-                    metas_global2lidar,
-                    his_metas_lidar2global,
-                    cached_confidence,
-                    prev_id,
-                ),
-                args.save_onnx2,
-                input_names=[
-                    "img",
-                    "instance_feature",
-                    "anchor",
-                    "time_interval",
-                    "image_wh",
-                    "lidar2img",
-                    "cached_instance_feature",
-                    "cached_anchor",
-                    "mask",
-                    "cached_track_id",
-                    "metas_global2lidar",
-                    "his_metas_lidar2global",
-                    'cached_confidence',
-                    'prev_id',
-                ],
-                output_names=[
-                    "pred_instance_feature",
-                    "pred_anchor",
-                    "pred_class_score",
-                    "pred_quality_score",
-                    "track_id",
-                    "cached_track_id",
-                    'cached_confidence',
-                    'cached_instance_feature',
-                    'cached_anchor',
-                    'prev_id',
-                ],
-                opset_version=15,
-                do_constant_folding=True,
-                export_params=True,
-                verbose=True,
-            )
-
-            onnx_orig = onnx.load(args.save_onnx2)
-            onnx_simp, check = simplify(onnx_orig)
-            assert check, "Simplified ONNX model could not be validated!"
-            onnx.save(onnx_simp, args.save_onnx2)
-            logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx2}" 🤗.')
+                os.system(f'onnxsim {args.save_onnx2} {args.save_onnx2}')
+                logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx2}" 🤗.')
     else:
         instance_bank = InstanceBank(copy.deepcopy(model))
         print("Export InstanceBank Onnx >>>>>>>>>>>>>>>>")

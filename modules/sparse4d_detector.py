@@ -46,6 +46,7 @@ class Sparse4D(BaseDetector):
             self.img_neck = build_module(img_neck)
         self.head = build_module(head)
         self.map_head = None
+        self.motion_head = None
         if map_head is not None:
             self.map_head = build_module(map_head)
         if motion_head is not None:
@@ -137,6 +138,7 @@ class Sparse4D(BaseDetector):
     def simple_test(self, img, **data):
         feature_maps = self.extract_feat(img)
 
+        # det head forward
         model_outs = self.head(feature_maps, data)
         det_results = self.head.post_process(model_outs)
         batch_size = len(det_results)
@@ -145,7 +147,6 @@ class Sparse4D(BaseDetector):
         if self.map_head is not None:
             map_model_outs = self.map_head(feature_maps, data)
             map_results = self.map_head.post_process(map_model_outs)
-            batch_size = len(map_results)
         
         # motion head forward
         if self.motion_head is not None:
