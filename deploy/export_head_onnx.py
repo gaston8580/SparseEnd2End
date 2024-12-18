@@ -44,12 +44,12 @@ def parse_args():
     parser.add_argument(
         "--save_onnx1",
         type=str,
-        default="deploy/onnx/sparse4dbackbone_head1st.onnx",
+        default="deploy/onnx/SparseE2E1st.onnx",
     )
     parser.add_argument(
         "--save_onnx2",
         type=str,
-        default="deploy/onnx/sparse4dbackbone_head2nd.onnx",
+        default="deploy/onnx/SparseE2E2nd.onnx",
     )
     parser.add_argument(
         "--export_2nd", default=1, action="store_true", help="export sparse4dhead2nd or sparse4dhead1nd onnx."
@@ -174,6 +174,7 @@ class Sparse4DHead1st(nn.Module):
         img,
         image_wh,
         lidar2img,
+        ego_his_trajs,
     ):
         feature_maps = self.model.extract_feat(img)  # feature, spatial_shapes, level_start_index
 
@@ -219,7 +220,7 @@ class Sparse4DHead1st(nn.Module):
 
         # motion head forward
         motion_head = self.model.motion_head
-        data = {'ego_his_trajs': torch.randn(1, 2, 2).cuda()}
+        data = {'ego_his_trajs': ego_his_trajs}
         plan_traj = motion_head(det_instance_feature, map_instance_feature, data)
 
         return (
@@ -373,6 +374,7 @@ class Sparse4DHead2nd(nn.Module):
         time_interval,
         image_wh,
         lidar2img,
+        ego_his_trajs,
         det_cached_instance_feature,
         det_cached_anchor,
         det_cached_track_id,
@@ -446,7 +448,7 @@ class Sparse4DHead2nd(nn.Module):
         
         # motion head forward
         motion_head = self.model.motion_head
-        data = {'ego_his_trajs': torch.randn(1, 2, 2).cuda()}
+        data = {'ego_his_trajs': ego_his_trajs}
         plan_traj = motion_head(det_instance_feature, map_instance_feature, data)
 
         return (
@@ -672,6 +674,7 @@ if __name__ == "__main__":
     time_interval = dummy_time_interval
     image_wh = dummy_image_wh
     lidar2img = dummy_lidar2img
+    ego_his_trajs = torch.rand(1, 2, 2).cuda()
     metas_global2lidar = torch.rand(1, 4, 4).cuda()
     his_metas_lidar2global = torch.rand(1, 4, 4).cuda()
     # det inputs
@@ -698,29 +701,28 @@ if __name__ == "__main__":
                 torch.onnx.export(
                     backbone_first_frame_head,
                     (
-                        dummy_img,                
-                        dummy_image_wh,
-                        dummy_lidar2img,
+                        img,                
+                        image_wh,
+                        lidar2img,
+                        ego_his_trajs,
                     ),
                     args.save_onnx1,
                     input_names=[
                         "img",
                         "image_wh",
                         "lidar2img",
+                        "ego_his_trajs",
                     ],
                     output_names=[
-                        ## det outputs
                         "det_cached_track_id",
-                        'det_cached_confidence',
-                        'det_cached_instance_feature',
-                        'det_cached_anchor',
-                        ## map outputs
-                        'map_cached_track_id',
-                        'map_cached_confidence',
-                        'map_cached_instance_feature',
-                        'map_cached_anchor',
-                        ## motion outputs
-                        'plan_traj',
+                        "det_cached_confidence",
+                        "det_cached_instance_feature",
+                        "det_cached_anchor",
+                        "map_cached_track_id",
+                        "map_cached_confidence",
+                        "map_cached_instance_feature",
+                        "map_cached_anchor",
+                        "plan_traj",
                     ],
                     # output_names=None,
                     opset_version=15,
@@ -729,11 +731,9 @@ if __name__ == "__main__":
                     verbose=True,
                 )
 
-                onnx_orig = onnx.load(args.save_onnx1)
-                onnx_simp, check = simplify(onnx_orig)
-                assert check, "Simplified ONNX model could not be validated"
-                onnx.save(onnx_simp, args.save_onnx1)
-                logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx1}" 🤗.')
+                os.system(f'onnxsim {args.save_onnx1} {args.save_onnx1}')
+                os.system(f'trtexec --onnx={args.save_onnx1} --saveEngine={args.save_onnx1.replace(".onnx", ".engine")} '
+                          '--plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so')
         else:
             backbone_second_frame_head = Sparse4DHead2nd(copy.deepcopy(model))
             logger.info("Export Sparse4DHead2nd Onnx >>>>>>>>>>>>>>>>")
@@ -746,6 +746,7 @@ if __name__ == "__main__":
                         time_interval,
                         image_wh,
                         lidar2img,
+                        ego_his_trajs,
                         det_cached_instance_feature,
                         det_cached_anchor,
                         det_cached_track_id,
@@ -765,12 +766,13 @@ if __name__ == "__main__":
                         "time_interval",
                         "image_wh",
                         "lidar2img",
+                        "ego_his_trajs",
                         "det_cached_instance_feature",
                         "det_cached_anchor",
                         "det_cached_track_id",
                         "metas_global2lidar",
                         "his_metas_lidar2global",
-                        "det_cached_confidence","""  """
+                        "det_cached_confidence",
                         "det_prev_id",
                         "map_cached_instance_feature",
                         "map_cached_anchor",
@@ -779,17 +781,17 @@ if __name__ == "__main__":
                         "map_prev_id",
                     ],
                     output_names=[
-                        'det_cached_track_id',
-                        'det_cached_confidence',
-                        'det_cached_instance_feature',
-                        'det_cached_anchor',
-                        'det_prev_id',
-                        'map_cached_track_id',
-                        'map_cached_confidence',
-                        'map_cached_instance_feature',
-                        'map_cached_anchor',
-                        'map_prev_id',
-                        'plan_traj',
+                        "det_cached_track_id",
+                        "det_cached_confidence",
+                        "det_cached_instance_feature",
+                        "det_cached_anchor",
+                        "det_prev_id",
+                        "map_cached_track_id",
+                        "map_cached_confidence",
+                        "map_cached_instance_feature",
+                        "map_cached_anchor",
+                        "map_prev_id",
+                        "plan_traj",
                     ],
                     opset_version=15,
                     do_constant_folding=False,
@@ -798,7 +800,8 @@ if __name__ == "__main__":
                 )
 
                 os.system(f'onnxsim {args.save_onnx2} {args.save_onnx2}')
-                logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx2}" 🤗.')
+                os.system(f'trtexec --onnx={args.save_onnx2} --saveEngine={args.save_onnx2.replace(".onnx", ".engine")} '
+                          '--plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so')
     else:
         instance_bank = InstanceBank(copy.deepcopy(model))
         print("Export InstanceBank Onnx >>>>>>>>>>>>>>>>")
