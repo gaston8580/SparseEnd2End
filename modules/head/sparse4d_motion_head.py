@@ -48,7 +48,7 @@ class Sparse4DMotionHead(BaseModule):
         decouple_attn: bool = True,
         init_cfg: dict = None,
         num_reg_fcs: int = 2,
-        ego_fut_mode: int = 3,
+        ego_fut_mode: int = 6,
         fut_ts: int = 6,
         **kwargs,
     ):
@@ -112,21 +112,22 @@ class Sparse4DMotionHead(BaseModule):
             self.fc_after = nn.Identity()
         
         #### planning ####
-        self.ego_his_encoder = nn.Linear(4, self.embed_dims, bias=False)
+        self.ego_fut_mode = ego_fut_mode
+        self.ego_his_encoder = nn.Linear(4, self.embed_dims * self.ego_fut_mode, bias=False)
         self.agent_self_attn = AgentSelfAttention(self.embed_dims, depth=2)
         self.ego_agent_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
         self.ego_map_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
         ego_fut_decoder = []
         self.num_reg_fcs = num_reg_fcs
-        self.ego_fut_mode = ego_fut_mode
         self.fut_ts = fut_ts
         ego_fut_dec_in_dim = self.embed_dims * 2
         for _ in range(self.num_reg_fcs):
             ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, ego_fut_dec_in_dim))
             ego_fut_decoder.append(nn.ReLU())
-        ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, self.ego_fut_mode * self.fut_ts * 2))
+        ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, self.fut_ts * 2))
         self.ego_fut_decoder = nn.Sequential(*ego_fut_decoder)
         self.loss_plan_reg = build_module(loss_reg)
+        self.to_prob = nn.Linear(ego_fut_dec_in_dim, 1)
 
     def init_weights(self):
         for i, op in enumerate(self.operation_order):
@@ -175,11 +176,12 @@ class Sparse4DMotionHead(BaseModule):
         data: dict,
     ):
         output = {}
-        agent_query = agent_hs  # [bs, num_agent, embed_dims]
-        map_query = map_hs  # [bs, num_map, embed_dims]
-        ego_his_trajs = data['ego_his_trajs'].float().unsqueeze(1)
-        ego_his_feats = self.ego_his_encoder(ego_his_trajs.flatten(2))
-        ego_query = ego_his_feats
+        bs = agent_hs.shape[0]
+        agent_query = agent_hs[:, None].repeat(1, self.ego_fut_mode, 1, 1)  # [bs, 1, num_agent, embed_dims]
+        map_query = map_hs[:, None].repeat(1, self.ego_fut_mode, 1, 1)  # [bs, num_map, embed_dims]
+        ego_his_trajs = data['ego_his_trajs'].float()
+        ego_his_feats = self.ego_his_encoder(ego_his_trajs.flatten(1))
+        ego_query = ego_his_feats.view(bs, self.ego_fut_mode, self.embed_dims)
 
         # agent interaction
         agent_query = self.agent_self_attn(
@@ -198,15 +200,33 @@ class Sparse4DMotionHead(BaseModule):
                 hs_query=ego_agent_query, 
                 hs_key=map_query,
                 attention_mask=None)
-            ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, 1, 2D]
+            ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, modes, 2D]
         else:
             ego_feats = torch.cat([ego_agent_query, ego_agent_query], dim=-1)
 
         outputs_ego_trajs = self.ego_fut_decoder(ego_feats)
         outputs_ego_trajs = outputs_ego_trajs.reshape(outputs_ego_trajs.shape[0], self.ego_fut_mode, self.fut_ts, 2)
-        output['ego_fut_preds'] = outputs_ego_trajs
+        prob = self.to_prob(ego_feats).squeeze(-1)
         
+        output['ego_fut_preds'] = outputs_ego_trajs
+        output['prob'] = prob
         return output
+    
+    def loss_plan_cls(self, prob, target_gt, target_pred, loss_plan_cls_weight):
+        target_gts = target_gt.repeat(1, self.ego_fut_mode, 1)
+        loss_plan_cls_weights = loss_plan_cls_weight.repeat(1, self.ego_fut_mode, 1)
+
+        loss_target = self.loss_plan_reg(
+            target_pred,
+            target_gts,
+            loss_plan_cls_weights,
+            reduction_override='none',
+        )
+        loss_target = loss_target.sum(dim=-1)
+
+        log_pi = F.log_softmax(prob, dim=-1)
+        loss = -torch.logsumexp(log_pi - loss_target, dim=-1)
+        return loss
 
     @force_fp32(apply_to=("model_outs"))
     def loss(self, model_outs, data):
@@ -215,23 +235,29 @@ class Sparse4DMotionHead(BaseModule):
         ego_fut_masks = data['ego_fut_masks']
         ego_fut_gt = data['ego_fut_trajs'].float()
         ego_fut_preds = model_outs['ego_fut_preds']
-        ego_fut_gt = ego_fut_gt.unsqueeze(1).repeat(1, self.ego_fut_mode, 1, 1)
-        loss_plan_l1_weight = ego_fut_cmd[..., None, None] * ego_fut_masks[:, None, :, None]
-        loss_plan_l1_weight = loss_plan_l1_weight.repeat(1, 1, 1, 2)
+        prob = model_outs['prob']
+        ego_fut_gt = ego_fut_gt.unsqueeze(1)
+        target_gt = ego_fut_gt[:, :, -1]
+        target_pred = ego_fut_preds[:, :, -1]
 
-        loss_plan_l1 = self.loss_plan_reg(
-            ego_fut_preds,
-            ego_fut_gt,
-            loss_plan_l1_weight
+        l2_norm = torch.norm(ego_fut_preds - ego_fut_gt, p=2, dim=-1,)
+        l2_norm = (l2_norm * ego_fut_masks.unsqueeze(1)).sum(dim=-1)
+        best_mode = l2_norm.argmin(dim=-1)
+        ego_fut_preds_best = ego_fut_preds[torch.arange(ego_fut_preds.size(0)), best_mode]
+        # loss_plan_reg_weight = ego_fut_cmd[..., None, None] * ego_fut_masks[:, None, :, None]
+        loss_plan_reg_weight = ego_fut_masks[:, None, :, None].repeat(1, 1, 1, 2)
+        loss_plan_reg = self.loss_plan_reg(
+            ego_fut_preds_best,
+            ego_fut_gt.squeeze(1),
+            loss_plan_reg_weight,
         )
-        if math.isnan(loss_plan_l1):
-            # loss_plan_l1 = torch.tensor(0.0).to(loss_plan_l1.device)
-            print('ego_fut_masks: ', ego_fut_masks)
-            print('ego_fut_gt: ', data['ego_fut_trajs'].float())
-            print('ego_fut_preds: ', ego_fut_preds)
-            print('ego_fut_cmd: ', ego_fut_cmd)
-        output['loss_plan_reg'] = loss_plan_l1
 
+        loss_plan_cls_mask = ego_fut_masks[:, -1]
+        loss_plan_cls_weight = ego_fut_masks[:, -1:, None].repeat(1, 1, 2)
+        loss_plan_cls = self.loss_plan_cls(prob, target_gt, target_pred, loss_plan_cls_weight) * loss_plan_cls_mask
+        loss_plan_cls = loss_plan_cls.sum() / loss_plan_cls_mask.sum().clamp_(min=1)
+        output['loss_plan_reg'] = loss_plan_reg
+        output['loss_plan_cls'] = loss_plan_cls
         return output
 
     def prepare_for_dn_loss(self, model_outs, prefix=""):

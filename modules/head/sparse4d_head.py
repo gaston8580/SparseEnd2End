@@ -244,7 +244,7 @@ class Sparse4DHead(BaseModule):
         classification = ([])  # output=6 ([1, 900, 10], None, None, None, None, None, [1, 900, 10]) float32
         quality = ([])  # output=6 ([1, 900, 2], None, None, None, None, None, [1, 900, 2]) float32
         for i, op in enumerate(self.operation_order):
-            print(f"{i+1} / {len(self.operation_order)}, cur op >>>>>>>>>>>>>>>> {op}")
+            # print(f"{i+1} / {len(self.operation_order)}, cur op >>>>>>>>>>>>>>>> {op}")
             if self.layers[i] is None:
                 continue
             elif op == "temp_gnn":
