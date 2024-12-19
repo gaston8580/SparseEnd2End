@@ -127,6 +127,7 @@ model = dict(
         relu_before_extra_convs=True,
         in_channels=[256, 512, 1024, 2048],
     ),
+    
     head=dict(
         type="Sparse4DHead",
         cls_threshold_to_reg=0.05,
@@ -276,139 +277,138 @@ model = dict(
     ),
 
     map_head = dict(
-            type="Sparse4DMapHead",
-            cls_threshold_to_reg=0.05,
-            decouple_attn=decouple_attn_map,
-            instance_bank=dict(
-                type="InstanceBank",
-                num_anchor=100,
-                embed_dims=embed_dims,
-                anchor="data/kmeans_map_100.npy",
-                anchor_handler=dict(type="SparsePoint3DKeyPointsGenerator"),
-                num_temp_instances=0 if temporal_map else -1,
-                confidence_decay=0.6,
-                feat_grad=True,
-            ),
-            anchor_encoder=dict(
-                type="SparsePoint3DEncoder",
+        type="Sparse4DMapHead",
+        cls_threshold_to_reg=0.05,
+        decouple_attn=decouple_attn_map,
+        instance_bank=dict(
+            type="InstanceBank",
+            num_anchor=100,
+            embed_dims=embed_dims,
+            anchor="data/kmeans_map_100.npy",
+            anchor_handler=dict(type="SparsePoint3DKeyPointsGenerator"),
+            num_temp_instances=33 if temporal_map else -1,  # 阳红num_temp_instances=0
+            confidence_decay=0.6,
+            feat_grad=True,
+        ),
+        anchor_encoder=dict(
+            type="SparsePoint3DEncoder",
+            embed_dims=embed_dims,
+            num_sample=num_sample
+        ),
+        num_single_frame_decoder=num_single_frame_decoder_map,
+        operation_order=(
+            [
+                "gnn",
+                "norm",
+                "deformable",
+                "ffn",
+                "norm",
+                "refine",
+            ]
+            * num_single_frame_decoder_map
+            + [
+                "temp_gnn",
+                "gnn",
+                "norm",
+                "deformable",
+                "ffn",
+                "norm",
+                "refine",
+            ]
+            * (num_decoder - num_single_frame_decoder_map)
+        )[:],
+        temp_graph_model=dict(
+            type="MultiheadAttention",
+            embed_dims=embed_dims if not decouple_attn_map else embed_dims * 2,
+            num_heads=num_groups,
+            batch_first=True,
+            attn_drop=drop_out,
+        )
+        if temporal_map
+        else None,
+        graph_model=dict(
+            type="MultiheadAttention",
+            embed_dims=embed_dims if not decouple_attn_map else embed_dims * 2,
+            num_heads=num_groups,
+            batch_first=True,
+            attn_drop=drop_out,
+        ),
+        norm_layer=dict(type="LayerNorm", normalized_shape=embed_dims),
+        ffn=dict(
+            type="AsymmetricFFN",
+            in_channels=embed_dims * 2,
+            pre_norm=dict(type="LayerNorm"),
+            embed_dims=embed_dims,
+            feedforward_channels=embed_dims * 4,
+            num_fcs=2,
+            ffn_drop=drop_out,
+            act_cfg=dict(type="ReLU", inplace=True),
+        ),
+        deformable_model=dict(
+            type="DeformableAttentionAggr",
+            embed_dims=embed_dims,
+            num_groups=num_groups,
+            num_levels=num_levels,
+            num_cams=6,
+            attn_drop=0.15,
+            use_deformable_func=use_deformable_func,
+            use_camera_embed=True,
+            residual_mode="cat",
+            kps_generator=dict(
+                type="SparsePoint3DKeyPointsGenerator",
                 embed_dims=embed_dims,
                 num_sample=num_sample,
+                num_learnable_pts=3,
+                fix_height=(0, 0.5, -0.5, 1, -1),
+                ground_height=-1.84023, # ground height in lidar frame
             ),
-            num_single_frame_decoder=num_single_frame_decoder_map,
-            operation_order=(
-                [
-                    "gnn",
-                    "norm",
-                    "deformable",
-                    "ffn",
-                    "norm",
-                    "refine",
-                ]
-                * num_single_frame_decoder_map
-                + [
-                    "temp_gnn",
-                    "gnn",
-                    "norm",
-                    "deformable",
-                    "ffn",
-                    "norm",
-                    "refine",
-                ]
-                * (num_decoder - num_single_frame_decoder_map)
-            )[:],
-            temp_graph_model=dict(
-                type="MultiheadAttention",
-                embed_dims=embed_dims if not decouple_attn_map else embed_dims * 2,
-                num_heads=num_groups,
-                batch_first=True,
-                attn_drop=drop_out,
-            )
-            if temporal_map
-            else None,
-            graph_model=dict(
-                type="MultiheadAttention",
-                embed_dims=embed_dims if not decouple_attn_map else embed_dims * 2,
-                num_heads=num_groups,
-                batch_first=True,
-                attn_drop=drop_out,
-            ),
-            norm_layer=dict(type="LayerNorm", normalized_shape=embed_dims),
-            ffn=dict(
-                type="AsymmetricFFN",
-                in_channels=embed_dims * 2,
-                pre_norm=dict(type="LayerNorm"),
-                embed_dims=embed_dims,
-                feedforward_channels=embed_dims * 4,
-                num_fcs=2,
-                ffn_drop=drop_out,
-                act_cfg=dict(type="ReLU", inplace=True),
-            ),
-            deformable_model=dict(
-                type="DeformableAttentionAggr",
-                embed_dims=embed_dims,
-                num_groups=num_groups,
-                num_levels=num_levels,
-                num_cams=6,
-                attn_drop=0.15,
-                use_deformable_func=use_deformable_func,
-                use_camera_embed=True,
-                residual_mode="cat",
-                kps_generator=dict(
-                    type="SparsePoint3DKeyPointsGenerator",
-                    embed_dims=embed_dims,
-                    num_sample=num_sample,
-                    num_learnable_pts=3,
-                    fix_height=(0, 0.5, -0.5, 1, -1),
-                    ground_height=-1.84023, # ground height in lidar frame
+        ),
+        refine_layer=dict(
+            type="SparsePoint3DRefinementModule",
+            embed_dims=embed_dims,
+            num_sample=num_sample,
+            num_cls=num_map_classes,
+        ),
+        sampler=dict(
+            type="SparsePoint3DTarget",
+            assigner=dict(
+                type='HungarianLinesAssigner',
+                cost=dict(
+                    type='MapQueriesCost',
+                    cls_cost=dict(type='FocalLossCost', weight=1.0),
+                    reg_cost=dict(type='LinesL1Cost', weight=10.0, beta=0.01, permute=True),
                 ),
             ),
-            refine_layer=dict(
-                type="SparsePoint3DRefinementModule",
-                embed_dims=embed_dims,
-                num_sample=num_sample,
-                num_cls=num_map_classes,
+            num_cls=num_map_classes,
+            num_sample=num_sample,
+            roi_size=roi_size,
+        ),
+        loss_cls=dict(
+            type="FocalLoss",
+            use_sigmoid=True,
+            gamma=2.0,
+            alpha=0.25,
+            loss_weight=1.0,
+        ),
+        loss_reg=dict(
+            type="SparseLineLoss",
+            loss_line=dict(
+                type='LinesL1Loss',
+                loss_weight=10.0,
+                beta=0.01,
             ),
-            sampler=dict(
-                type="SparsePoint3DTarget",
-                assigner=dict(
-                    type='HungarianLinesAssigner',
-                    cost=dict(
-                        type='MapQueriesCost',
-                        cls_cost=dict(type='FocalLossCost', weight=1.0),
-                        reg_cost=dict(type='LinesL1Cost', weight=10.0, beta=0.01, permute=True),
-                    ),
-                ),
-                num_cls=num_map_classes,
-                num_sample=num_sample,
-                roi_size=roi_size,
-            ),
-            loss_cls=dict(
-                type="FocalLoss",
-                use_sigmoid=True,
-                gamma=2.0,
-                alpha=0.25,
-                loss_weight=1.0,
-            ),
-            loss_reg=dict(
-                type="SparseLineLoss",
-                loss_line=dict(
-                    type='LinesL1Loss',
-                    loss_weight=10.0,
-                    beta=0.01,
-                ),
-                num_sample=num_sample,
-                roi_size=roi_size,
-            ),
-            decoder=dict(type="SparsePoint3DDecoder"),
-            reg_weights=[1.0] * 40,
-            gt_cls_key="gt_map_labels",
-            gt_reg_key="gt_map_pts",
-            gt_id_key="map_instance_id",
-            with_instance_id=False,
-            task_prefix='map',
+            num_sample=num_sample,
+            roi_size=roi_size,
+        ),
+        decoder=dict(type="SparsePoint3DDecoder"),
+        reg_weights=[1.0] * 40,
+        gt_cls_key="gt_map_labels",
+        gt_reg_key="gt_map_pts",
+        gt_id_key="map_instance_id",
+        with_instance_id=False,
+        task_prefix='map',
     ),
 
-    
     motion_head=dict(
         type="Sparse4DMotionHead",
         cls_threshold_to_reg=0.05,

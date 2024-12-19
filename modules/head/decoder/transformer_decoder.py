@@ -119,7 +119,7 @@ class AgentSelfAttention(nn.Module):
 
     def forward(self, hidden_states, attention_mask=None):        
         for layer_index, layer in enumerate(self.layers):
-            temp = hidden_states
+            temp = hidden_states.view(hidden_states.shape[0], -1, hidden_states.shape[-1])
             hidden_states = layer(hidden_states, attention_mask)       # self-attn
             hidden_states = F.relu(hidden_states)
             hidden_states = hidden_states + temp                       # 残差连接

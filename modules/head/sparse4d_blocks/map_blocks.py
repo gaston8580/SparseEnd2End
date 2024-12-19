@@ -185,17 +185,24 @@ class SparsePoint3DKeyPointsGenerator(BaseModule):
             dst_anchor = anchor.clone()
             bs, num_anchor, _ = anchor.shape
             dst_anchor = dst_anchor.reshape(bs, num_anchor, self.num_sample, -1).flatten(1, 2)
-            T_src2dst = torch.unsqueeze(
-                T_src2dst_list[i].to(dtype=anchor.dtype), dim=1
-            )
+            T_src2dst = torch.unsqueeze(T_src2dst_list[i].to(dtype=anchor.dtype), dim=1)
 
-            dst_anchor = (
-                torch.matmul(
-                    T_src2dst[..., :2, :2], dst_anchor[..., None]
-                ).squeeze(dim=-1)
-                + T_src2dst[..., :2, 3]
-            )
+            dst_anchor = (torch.matmul(T_src2dst[..., :2, :2], dst_anchor[..., None]).squeeze(dim=-1) + T_src2dst[..., :2, 3])
 
             dst_anchor = dst_anchor.reshape(bs, num_anchor, self.num_sample, -1).flatten(2, 3)
             dst_anchors.append(dst_anchor)
         return dst_anchors
+    
+    def anchor_projection_trt(
+        self,
+        anchor,
+        T_src2dst,
+        time_interval=None,
+    ):
+        dst_anchor = anchor.clone()
+        bs, num_anchor, _ = anchor.shape
+        dst_anchor = dst_anchor.reshape(bs, num_anchor, self.num_sample, -1).flatten(1, 2)
+        T_src2dst = torch.unsqueeze(T_src2dst.to(dtype=anchor.dtype), dim=1)
+        dst_anchor = (torch.matmul(T_src2dst[..., :2, :2], dst_anchor[..., None]).squeeze(dim=-1) + T_src2dst[..., :2, 3])
+        dst_anchor = dst_anchor.reshape(bs, num_anchor, self.num_sample, -1).flatten(2, 3)
+        return dst_anchor

@@ -155,11 +155,45 @@ class InstanceBank(nn.Module):
             )
 
         return (
-            instance_feature,
+            instance_feature,  # 全0 tensor
             anchor,
             self.cached_feature,
             self.cached_anchor,
             time_interval,
+        )
+
+    def get_cacahe_trt(self, cached_anchor=None, time_interval=None, metas_global2lidar=None, 
+                       his_metas_lidar2global=None):
+        """
+        Return:
+            instance_feature : Tensor.shape(bs, 900, 25)
+            anchor : Tensor.shape(bs, 900, 11)
+            self.cached_feature: None or
+            self.cached_anchor: None or
+            time_interval: TensorShape (bs, )
+        """
+        batch_size = 1
+        instance_feature = self.instance_feature[None].repeat((batch_size, 1, 1))
+        anchor = self.anchor[None].repeat((batch_size, 1, 1))
+
+        if cached_anchor is not None and batch_size == cached_anchor.shape[0]:
+            # time_interval = metas["timestamp"] - history_timestamp
+            mask = torch.abs(time_interval) <= self.max_time_interval  # < 2s
+            T_temp2cur = metas_global2lidar @ his_metas_lidar2global  # [1, 4, 4]
+            cached_anchor = self.anchor_handler.anchor_projection_trt(cached_anchor, T_temp2cur, -time_interval)
+
+            time_interval = torch.where(torch.logical_and(time_interval != 0, mask), time_interval, 
+                                        time_interval.new_tensor(self.default_time_interval),)
+        else:
+            cached_anchor, mask = None, None
+            time_interval = instance_feature.new_tensor([self.default_time_interval] * batch_size)
+
+        return (
+            instance_feature,
+            anchor,
+            cached_anchor,
+            time_interval,
+            mask,
         )
 
     def update(self, instance_feature, anchor, confidence):
@@ -237,6 +271,26 @@ class InstanceBank(nn.Module):
             self.confidence,
             (self.cached_feature, self.cached_anchor),
         ) = topk(confidence, self.num_temp_instances, instance_feature, anchor)
+    
+    def cache_trt(
+        self,
+        instance_feature,
+        anchor,
+        cls,
+        cached_confidence=None,
+        metas=None,
+    ):
+        if self.num_temp_instances <= 0:
+            return
+        cls = cls.max(dim=-1).values.sigmoid()  # (B, num_querys)
+        if cached_confidence is not None:
+            cls[:, : self.num_temp_instances] = torch.maximum(cached_confidence * self.confidence_decay, 
+                                                              cls[:, : self.num_temp_instances],)
+        temp_confidence = cls
+
+        (cached_confidence, (cached_instance_feature, cached_anchor),) = \
+            topk(cls, self.num_temp_instances, instance_feature, anchor)
+        return temp_confidence, cached_confidence, cached_instance_feature, cached_anchor
 
     def get_track_id(self, confidence, anchor=None, threshold=None):
         confidence = confidence.max(dim=-1).values.sigmoid()  # (bs, num_querys)
@@ -254,6 +308,21 @@ class InstanceBank(nn.Module):
         self.prev_id += num_new_instance
         self.update_track_id(track_id, confidence)
         return track_id
+    
+    def get_track_id_trt(self, cls, temp_confidence=None, prev_id=None, cached_track_id=None):
+        cls = cls.max(dim=-1).values.sigmoid()  # (bs, num_querys)
+        track_id = cls.new_full(cls.shape, -1).long()
+        cached_track_id = cached_track_id.long() if cached_track_id is not None else None
+
+        if cached_track_id is not None and cached_track_id.shape[0] == track_id.shape[0]:
+            track_id = cached_track_id
+
+        num_new_instance = self.num_anchor - self.num_temp_instances
+        new_ids = torch.arange(num_new_instance).to(track_id.device) + prev_id  # prev_id第一帧为0
+        track_id[:, -num_new_instance:] = new_ids
+        prev_id += num_new_instance
+        cached_track_id = self.update_track_id_trt(temp_confidence, track_id, cls)
+        return prev_id, track_id, cached_track_id
 
     def update_track_id(self, track_id=None, confidence=None):
         if self.temp_confidence is None:
@@ -270,3 +339,17 @@ class InstanceBank(nn.Module):
             (0, self.num_anchor - self.num_temp_instances),
             value=-1,
         )  # (bs, num_querys)
+
+    def update_track_id_trt(self, temp_confidence=None, track_id=None, confidence=None):
+        if temp_confidence is None:
+            if confidence.dim() == 3:  # bs, num_anchor, num_cls
+                temp_conf = confidence.max(dim=-1).values
+            else:  # bs, num_anchor
+                temp_conf = confidence
+        else:
+            temp_conf = temp_confidence
+        cached_track_id = track_id.new_full(track_id.shape, -1).long()
+        track_id = topk(temp_conf, self.num_temp_instances, track_id)[1][0]
+        track_id = track_id.view(1, self.num_temp_instances)  # (bs, k)
+        cached_track_id[:, : self.num_temp_instances] = track_id  # (bs, num_querys)
+        return cached_track_id

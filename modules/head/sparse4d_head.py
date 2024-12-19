@@ -241,13 +241,10 @@ class Sparse4DHead(BaseModule):
 
         # =================== forward the layers ====================
         prediction = []  # output=6 ([1, 900, 11] * 6 ) float32
-        classification = (
-            []
-        )  # output=6 ([1, 900, 10], None, None, None, None, None, [1, 900, 10]) float32
-        quality = (
-            []
-        )  # output=6 ([1, 900, 2], None, None, None, None, None, [1, 900, 2]) float32
+        classification = ([])  # output=6 ([1, 900, 10], None, None, None, None, None, [1, 900, 10]) float32
+        quality = ([])  # output=6 ([1, 900, 2], None, None, None, None, None, [1, 900, 2]) float32
         for i, op in enumerate(self.operation_order):
+            # print(f"{i+1} / {len(self.operation_order)}, cur op >>>>>>>>>>>>>>>> {op}")
             if self.layers[i] is None:
                 continue
             elif op == "temp_gnn":
@@ -272,6 +269,7 @@ class Sparse4DHead(BaseModule):
                 instance_feature = self.layers[i](instance_feature)
             elif op == "deformable":  # [1, 900, 256]
                 # i = 0, 7
+                # 输出每个 anchor 的增强特征
                 instance_feature = self.layers[i](
                     instance_feature,  # [1, 900, 256]
                     anchor,  # [1, 900, 11]
@@ -295,9 +293,7 @@ class Sparse4DHead(BaseModule):
                 classification.append(cls)
                 quality.append(qt)
                 if len(prediction) == self.num_single_frame_decoder:
-                    instance_feature, anchor = self.instance_bank.update(
-                        instance_feature, anchor, cls
-                    )
+                    instance_feature, anchor = self.instance_bank.update(instance_feature, anchor, cls)
                     if (
                         dn_metas is not None
                         and self.sampler.num_temp_dn_groups > 0  # default=3
@@ -323,13 +319,8 @@ class Sparse4DHead(BaseModule):
                 if i != len(self.operation_order) - 1:
                     # (1, 1220, 11) => (1, 1220, 256)
                     anchor_embed = self.anchor_encoder(anchor)
-                if (
-                    len(prediction) > self.num_single_frame_decoder
-                    and temp_anchor_embed is not None
-                ):
-                    temp_anchor_embed = anchor_embed[
-                        :, : self.instance_bank.num_temp_instances
-                    ]
+                if (len(prediction) > self.num_single_frame_decoder and temp_anchor_embed is not None):
+                    temp_anchor_embed = anchor_embed[:, : self.instance_bank.num_temp_instances]
             else:
                 raise NotImplementedError(f"{op} is not supported.")
 
@@ -397,9 +388,7 @@ class Sparse4DHead(BaseModule):
         # input: [1, 900, 256], [1, 900, 11], [1, 900, 10],  metas, feature_maps
         self.instance_bank.cache(instance_feature, anchor, cls, metas, feature_maps)
         if not self.training:
-            track_id = self.instance_bank.get_track_id(
-                cls, anchor, self.decoder.score_threshold
-            )
+            track_id = self.instance_bank.get_track_id(cls, anchor, self.decoder.score_threshold)
             output["track_id"] = track_id  # [1, 900], int64
         return output
 

@@ -179,8 +179,8 @@ class Sparse4DMapHead(BaseModule):
         ):
             self.sampler.dn_metas = None
         (
-            instance_feature,  # (1, 900, 256) float32
-            anchor,  # (1, 900, 11) float32
+            instance_feature,  # (1, 100, 256) float32
+            anchor,  # (1, 100, 40) float32
             temp_instance_feature,  # None
             temp_anchor,  # None
             time_interval,  # (1,)=0.5000 float32
@@ -229,7 +229,7 @@ class Sparse4DMapHead(BaseModule):
                     ],
                     dim=-1,
                 )
-            anchor = torch.cat([anchor, dn_anchor], dim=1)  # (bs, 320+900, 11)
+            anchor = torch.cat([anchor, dn_anchor], dim=1)  # (bs, 320+100, 11)
             instance_feature = torch.cat(
                 [
                     instance_feature,
@@ -247,16 +247,15 @@ class Sparse4DMapHead(BaseModule):
                 num_free_instance:, num_free_instance:
             ] = dn_attn_mask  # (1120, 1120)
 
-        anchor_embed = self.anchor_encoder(anchor)  # (bs, 320+900, 256)
+        anchor_embed = self.anchor_encoder(anchor)  # (bs, 100, 256)
         if temp_anchor is not None:
             temp_anchor_embed = self.anchor_encoder(temp_anchor)
         else:
             temp_anchor_embed = None
 
-        # =================== forward the layers ====================
-        prediction = []  # output=6 ([1, 900, 11] * 6 ) float32
-        classification = [] # output=6 ([1, 900, 10], None, None, None, None, None, [1, 900, 10]) float32
-        quality = [] # output=6 ([1, 900, 2], None, None, None, None, None, [1, 900, 2]) float32
+        prediction = []  # output=6 ([1, 100, 11] * 6 ) float32
+        classification = [] # output=6 ([1, 100, 10], None, None, None, None, None, [1, 100, 10]) float32
+        quality = [] # output=6 ([1, 100, 2], None, None, None, None, None, [1, 100, 2]) float32
         for i, op in enumerate(self.operation_order):
             if self.layers[i] is None:
                 continue
@@ -278,14 +277,14 @@ class Sparse4DMapHead(BaseModule):
                     query_pos=anchor_embed,
                     attn_mask=attn_mask,
                 )
-            elif op == "norm" or op == "ffn":  # [1, 900, 512] => [1, 900, 256]
+            elif op == "norm" or op == "ffn":  # [1, 100, 512] => [1, 100, 256]
                 instance_feature = self.layers[i](instance_feature)
-            elif op == "deformable":  # [1, 900, 256]
+            elif op == "deformable":  # [1, 100, 256]
                 # i = 0, 7
                 instance_feature = self.layers[i](
-                    instance_feature,  # [1, 900, 256]
-                    anchor,  # [1, 900, 11]
-                    anchor_embed,  # [1, 900, 256]
+                    instance_feature,  # [1, 100, 256]
+                    anchor,  # [1, 100, 11]
+                    anchor_embed,  # [1, 100, 256]
                     feature_maps,  # [[1, 89760, 256], [6, 4, 2], [6, 4, 4]]
                     metas,
                 )
@@ -295,7 +294,11 @@ class Sparse4DMapHead(BaseModule):
                     anchor,
                     anchor_embed,
                     time_interval=time_interval,
-                    return_cls=True
+                    return_cls=(
+                        self.training
+                        or len(prediction) == self.num_single_frame_decoder - 1
+                        or i == len(self.operation_order) - 1
+                    ),
                 )
                 prediction.append(anchor)
                 classification.append(cls)
@@ -326,9 +329,9 @@ class Sparse4DMapHead(BaseModule):
                             self.instance_bank.num_anchor,
                             self.instance_bank.mask,  # None
                         )
-                # if i != len(self.operation_order) - 1:
-                #     # (1, 1220, 11) => (1, 1220, 256)
-                anchor_embed = self.anchor_encoder(anchor)
+                if i != len(self.operation_order) - 1:
+                    # (1, 1220, 11) => (1, 1220, 256)
+                    anchor_embed = self.anchor_encoder(anchor)
                 if (
                     len(prediction) > self.num_single_frame_decoder
                     and temp_anchor_embed is not None
@@ -393,16 +396,16 @@ class Sparse4DMapHead(BaseModule):
         # 2) split learnable instance
         output.update(
             {
-                "classification": classification,  # list:length=6 ([1, 900, 10], None, None, None, None, [1, 900, 10])
-                "prediction": prediction,  # list:length=6 ([1, 900, 11], ..., [1, 900, 11])
-                "quality": quality,  # list:length=6 ([1, 900, 2], ..., [1, 900, 2])
+                "classification": classification,  # list:length=6 ([1, 100, 10], None, None, None, None, [1, 100, 10])
+                "prediction": prediction,  # list:length=6 ([1, 100, 11], ..., [1, 100, 11])
+                "quality": quality,  # list:length=6 ([1, 100, 2], ..., [1, 100, 2])
                 "instance_feature": instance_feature,
                 "anchor_embed": anchor_embed,
             }
         )
 
         # cache current instances for temporal modeling
-        # input: [1, 900, 256], [1, 900, 11], [1, 900, 10],  metas, feature_maps
+        # input: [1, 100, 256], [1, 100, 11], [1, 100, 10],  metas, feature_maps
         self.instance_bank.cache(instance_feature, anchor, cls, metas, feature_maps)
         if self.with_instance_id:
             instance_id = self.instance_bank.get_instance_id(
