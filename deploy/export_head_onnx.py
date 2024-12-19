@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="e2e_worklog/sparse4d_temporal_r50_1x4_bs22_256x704_VAD/iter_164.pth",
+        default="e2e_worklog/sparse4d_temporal_r50_1x4_bs22_256x704_VAD/iter_330.pth",
         help="deploy ckpt path",
     )
     parser.add_argument(
@@ -221,7 +221,9 @@ class Sparse4DHead1st(nn.Module):
         # motion head forward
         motion_head = self.model.motion_head
         data = {'ego_his_trajs': ego_his_trajs}
-        plan_traj = motion_head(det_instance_feature, map_instance_feature, data)
+        outputs = motion_head(det_instance_feature, map_instance_feature, data)
+        plan_traj = outputs['ego_fut_preds']
+        prob = outputs['prob']
 
         return (
             ## det outputs
@@ -235,7 +237,8 @@ class Sparse4DHead1st(nn.Module):
             map_cached_instance_feature,
             map_cached_anchor,
             ## motion outputs
-            plan_traj
+            plan_traj,
+            prob,
         )
 
 
@@ -449,7 +452,9 @@ class Sparse4DHead2nd(nn.Module):
         # motion head forward
         motion_head = self.model.motion_head
         data = {'ego_his_trajs': ego_his_trajs}
-        plan_traj = motion_head(det_instance_feature, map_instance_feature, data)
+        outputs = motion_head(det_instance_feature, map_instance_feature, data)
+        plan_traj = outputs['ego_fut_preds']
+        prob = outputs['prob']
 
         return (
             # det outputs
@@ -466,6 +471,7 @@ class Sparse4DHead2nd(nn.Module):
             map_prev_id,
             # motion outputs
             plan_traj,
+            prob,
         )
 
 
@@ -723,6 +729,7 @@ if __name__ == "__main__":
                         "map_cached_instance_feature",
                         "map_cached_anchor",
                         "plan_traj",
+                        "prob",
                     ],
                     # output_names=None,
                     opset_version=15,
@@ -792,6 +799,7 @@ if __name__ == "__main__":
                         "map_cached_anchor",
                         "map_prev_id",
                         "plan_traj",
+                        "prob",
                     ],
                     opset_version=15,
                     do_constant_folding=False,
