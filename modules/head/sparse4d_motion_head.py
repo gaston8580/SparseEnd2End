@@ -1,6 +1,7 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
 import torch, math
 import torch.nn as nn
+import torch.nn.functional as F
 
 from typing import List, Optional, Union
 from torch.nn.modules.normalization import *
