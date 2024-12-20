@@ -165,7 +165,8 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         lidar2img_rts = []
         cam_intrinsic = []
         for cam_type, cam_info in info["cams"].items():
-            image_paths.append(cam_info["data_path"])
+            data_path = cam_info["data_path"].replace('/home/ma-user/work/data/ali_odd', '/data/sfs_turbo/perception/nuScenes/zdrive')
+            image_paths.append(data_path)
             # obtain lidar to image transformation matrix
             lidar2cam_r = np.linalg.inv(np.array(cam_info["sensor2lidar_rotation"]))
             lidar2cam_t = cam_info["sensor2lidar_translation"] @ lidar2cam_r.T  # todo
@@ -201,8 +202,9 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         else:
             # 判断每个3Dbox里面是否都有lidar点，只保留box内存在点的3D框.
             mask = np.array(info["num_lidar_pts"]) > 0
-        gt_bboxes_3d = np.array(info["gt_boxes"]).reshape(-1, 7)[mask]
-        gt_names_3d = np.array(info["gt_names"])[mask]
+        '''
+        gt_bboxes_3d = np.array(info["gt_boxes"]).reshape(-1, 7)[:,:7]
+        gt_names_3d = np.array(info["gt_names"])
         gt_labels_3d = []
         for cat in gt_names_3d:
             if cat in self._classes:

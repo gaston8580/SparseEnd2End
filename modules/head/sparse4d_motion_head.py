@@ -50,7 +50,8 @@ class Sparse4DMotionHead(BaseModule):
         init_cfg: dict = None,
         num_reg_fcs: int = 2,
         ego_fut_mode: int = 6,
-        fut_ts: int = 6,
+        his_ts: int = 20,
+        fut_ts: int = 30,
         **kwargs,
     ):
         super(Sparse4DMotionHead, self).__init__(init_cfg)
@@ -114,7 +115,7 @@ class Sparse4DMotionHead(BaseModule):
         
         #### planning ####
         self.ego_fut_mode = ego_fut_mode
-        self.ego_his_encoder = nn.Linear(4, self.embed_dims, bias=False)
+        self.ego_his_encoder = nn.Linear(his_ts, self.embed_dims, bias=False)
         self.agent_self_attn = AgentSelfAttention(self.embed_dims, depth=2)
         self.ego_agent_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
         self.ego_map_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
