@@ -202,7 +202,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         else:
             # 判断每个3Dbox里面是否都有lidar点，只保留box内存在点的3D框.
             mask = np.array(info["num_lidar_pts"]) > 0
-        gt_bboxes_3d = np.array(info["gt_boxes"]).reshape(-1, 7)[:,:7]
+        gt_bboxes_3d = np.array(info["gt_boxes"]).reshape(-1, 9)[:,:7]
         gt_names_3d = np.array(info["gt_names"])
         gt_labels_3d = []
         for cat in gt_names_3d:
