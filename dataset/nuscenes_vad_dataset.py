@@ -99,7 +99,9 @@ class NuScenes4DDetTrackVADDataset(Dataset):
             annotations += json.load(open(ann, "r"))
         ordered_annotations = list(sorted(annotations, key=lambda e: e["timestamp"]))
         ordered_annotations = ordered_annotations[:: self._load_interval]
+        #print(ordered_annotations[0].keys)
         self._scene = list(set([ann["scene_token"] for ann in ordered_annotations]))
+        #self._scene = list(set(["ali_odd" for ann in ordered_annotations]))
         return ordered_annotations
 
     def anno2geom(self, annos):
@@ -107,6 +109,10 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         for label, anno_list in annos.items():
             map_geoms[label] = []
             for anno in anno_list:
+                #print("00000000000")
+                #print(anno)
+                if anno == [] or len(anno)==1:
+                    continue
                 geom = LineString(np.array(anno))
                 map_geoms[label].append(geom)
         return map_geoms
@@ -118,7 +124,9 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         """
 
         info = self._ordered_annotations[index]
-
+        ###For Debug Map##########
+        #map_dict = {}
+        #map_dict["0"] = [[[60,-3],[-60,-3]],[[60,3],[-60, 3]]]
         input_dict = dict(
             sample_scene=info["scene_token"],
             sample_idx=info["token"],
@@ -158,7 +166,8 @@ class NuScenes4DDetTrackVADDataset(Dataset):
 
         input_dict["lidar2global"] = ego2global @ lidar2ego
 
-        map_geoms = self.anno2geom(info["map_annos"])
+        #map_geoms = self.anno2geom(info["map_annos"])
+        map_geoms = self.anno2geom(input_dict["map_annos"])
         input_dict["map_geoms"] = map_geoms
 
         image_paths = []
@@ -197,6 +206,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
 
     def get_ann_info(self, index):
         info = self._ordered_annotations[index]
+        '''
         if self._use_valid_flag:
             mask = np.array(info["valid_flag"])
         else:
@@ -213,7 +223,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         gt_labels_3d = np.array(gt_labels_3d)
 
         if self._with_velocity:
-            gt_velocity = np.array(info["gt_velocity"]).reshape(-1, 2)[mask]
+            gt_velocity = np.array(info["gt_velocity"]).reshape(-1, 2)
             nan_mask = np.isnan(gt_velocity[:, 0])  # 判断标注文件中的速度是否都有效
             gt_velocity[nan_mask] = [0.0, 0.0]  # 标注中速度无效设置为0
             gt_bboxes_3d = np.concatenate([gt_bboxes_3d, gt_velocity], axis=-1)
@@ -224,7 +234,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
             gt_names=gt_names_3d,
         )
         if "instance_inds" in info:  # track id
-            track_id = np.array(info["instance_inds"])[mask]
+            track_id = np.array(info["instance_inds"])
             anns_results["track_id"] = track_id
         return anns_results
 
@@ -276,6 +286,9 @@ class NuScenes4DDetTrackVADDataset(Dataset):
                         curr_new_flag += 1
 
                 assert len(new_flags) == len(self._flag)
+                #print("0000000000000000000")
+                #print(len(np.bincount(new_flags)))
+                #print(len(np.bincount(self._flag)) * self._sequences_split_num)
                 assert (
                     len(np.bincount(new_flags))
                     == len(np.bincount(self._flag)) * self._sequences_split_num
@@ -645,6 +658,10 @@ def lidar_nusc_box_to_global(
         box.rotate(pyquaternion.Quaternion(info["lidar2ego_rotation"]))
         box.translate(np.array(info["lidar2ego_translation"]))
         # filter det in ego.
+        if classes[box.label] == "person":
+            classes[box.label] = "pedestrian"
+        if classes[box.label] == "tricycle":
+            classes[box.label] = "bicycle"
         cls_range_map = eval_configs.class_range
         radius = np.linalg.norm(box.center[:2], 2)
         det_range = cls_range_map[classes[box.label]]
