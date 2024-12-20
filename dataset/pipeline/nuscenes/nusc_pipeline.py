@@ -9,6 +9,7 @@ from typing import List, Tuple, Dict, Union
 from dataset.utils.data_container import DataContainer
 from shapely.geometry import LineString
 from numpy.typing import NDArray
+import numpy as np
 
 class LoadMultiViewImageFromFiles(object):
     """Load multi channel images from a list of separate channel files.
@@ -61,7 +62,10 @@ class LoadMultiViewImageFromFiles(object):
         """
         filename = results["img_filename"]
         # img is of shape (h， w, c, num_views)(900,1600,3,6)
-        img = np.stack([cv2.imread(name) for name in filename], axis=-1)  # bgr
+        img_paths = [name for name in filename]
+        img = np.stack([cv2.resize(cv2.imread(name), dsize=(640,480)) for name in filename], axis=-1)  # bgr
+        #print("11111111111111")
+        #print(img_paths)
         results["filename"] = filename
         # unravel to list, see `DefaultFormatBundle` in formatting.py
         # which will transpose each image separately and then stack into array
@@ -653,6 +657,77 @@ class NuScenesSparse4DAdaptor(object):
         limited_val = val - np.floor(val / period + offset) * period
         return limited_val
 
+class ZdriveSparse4DAdaptor(object):
+    """global2lidar and lidar2gloab 的类型还是float64, 类型会对后面产生影响吗？
+    Add
+        - image_wh:  list[(int(h), int(w)),...] => numpy.array.shape(6,2) dtype=float32.
+        - global2lidar : numpy.array.shape(4,4) dtype=np.float64.
+        - focal: (nums_cam,).
+    Updated keys and values are described below.
+        - lidar2img : list[numpy.array.shape(4,4),...] dtype=float64 => numpy.array.shape(6,4,4) dtype=float32.
+        - cam_intrinsic : list[numpy.array.shape(3,3),...] dtype=float64 => numpy.array.shape(6,3,3) dtype=float32.
+        - gt_bboxes_3d : to DataContainer (train or val), torch.tensor.shape(nums_gt, 9) dtype=torch.float32 device=cpu.
+        - gt_labels_3d : to DataContainer (train or val), torch.tensor.shape(nums_gt, ) dtype=torch.int64 device=cpu.
+        - img : [h,w,c] => [c,h,w]
+                DataContainer (stack = True), torch.tensor.shape(num_imgs, 3, h, w) dtype=torch.float32.
+    """
+
+    def __init(self):
+        pass
+
+    def __call__(self, input_dict):
+        input_dict["lidar2img"] = np.stack(input_dict["lidar2img"]).astype(np.float32)
+        input_dict["image_wh"] = np.ascontiguousarray(
+            np.array(input_dict["img_shape"], dtype=np.float32)[:, ::-1]
+        )  # (h,w) => (w,h)
+        input_dict["global2lidar"] = np.linalg.inv(input_dict["lidar2global"])
+        if "cam_intrinsic" in input_dict:
+            input_dict["cam_intrinsic"] = np.stack(input_dict["cam_intrinsic"]).astype(
+                np.float32
+            )
+            input_dict["focal"] = input_dict["cam_intrinsic"][..., 0, 0]
+        if "gt_bboxes_3d" in input_dict:
+            input_dict["gt_bboxes_3d"][:, 6] = self.limit_period(
+                input_dict["gt_bboxes_3d"][:, 6], offset=0.5, period=2 * np.pi
+            )
+            input_dict["gt_bboxes_3d"] = DataContainer(
+                torch.from_numpy(input_dict["gt_bboxes_3d"]).float()
+            )
+        if "gt_labels_3d" in input_dict:
+            input_dict["gt_labels_3d"] = DataContainer(
+                torch.from_numpy(input_dict["gt_labels_3d"]).long()
+            )
+        imgs = [img.transpose(2, 0, 1) for img in input_dict["img"]]
+        imgs = np.ascontiguousarray(np.stack(imgs, axis=0))
+        input_dict["img"] = DataContainer(torch.from_numpy(imgs), stack=True)
+
+        for key in [
+            'gt_map_labels',
+            'gt_map_pts',
+            'gt_agent_fut_trajs',
+            'gt_agent_fut_masks',
+        ]:
+            if key not in input_dict:
+                continue
+            input_dict[key] = DataContainer(torch.from_numpy(input_dict[key]), stack=False, cpu_only=False)
+
+        for key in [
+            'gt_ego_fut_trajs',
+            'gt_ego_fut_masks',
+            'gt_ego_fut_cmd',
+            'ego_status',
+        ]:
+            if key not in input_dict:
+                continue
+            input_dict[key] = DataContainer(torch.from_numpy(input_dict[key]), stack=True, cpu_only=False, pad_dims=None)
+
+        return input_dict
+
+    def limit_period(
+        self, val: np.ndarray, offset: float = 0.5, period: float = np.pi
+    ) -> np.ndarray:
+        limited_val = val - np.floor(val / period + offset) * period
+        return limited_val
 
 class Collect:
     """Collect data from the loader relevant to the specific task.
@@ -685,9 +760,26 @@ class Collect:
         img_meta = {}
         for key in self.meta_keys:
             img_meta[key] = results[key]
+
+        #print("AAAAAAAAAAA")
+        #print(results.keys())
+        
+        #print(type(results['gt_map_pts']))
+        #print(type(results['gt_map_pts'].data()))
+        #print(np.array(results['gt_map_pts'].data()))
+        #np.save('/home/ma-user/work/data/ali_odd/bev_map/'+ str(results['sample_scene'])+str(results['sample_idx']), np.array(results['gt_map_pts']))
         data["img_metas"] = DataContainer(img_meta, cpu_only=True)
+        #print(results.keys())
+        
         for key in self.keys:
             data[key] = results[key]
+        #print('----', data['gt_map_pts']._data.shape)
+        #print(data['cam_intrinsic'])
+        #np.save('/home/ma-user/work/data/ali_odd/gt_boxes/'+ str(results['sample_scene'])+str(results['sample_idx']), data['gt_bboxes_3d']._data.numpy())
+        #np.save('/home/ma-user/work/data/ali_odd/imgs/'+ str(results['sample_scene'])+str(results['sample_idx']), data['img']._data.numpy())
+        #np.save('/home/ma-user/work/data/ali_odd/lidar2img/'+ str(results['sample_scene'])+str(results['sample_idx']), data['lidar2img'])
+        #np.save('/home/ma-user/work/data/ali_odd/cam_intrinsic/'+ str(results['sample_scene'])+str(results['sample_idx']), results['cam_intrinsic'])
+        #np.save('/home/ma-user/work/data/ali_odd/bev_map/'+ str(results['sample_scene'])+str(results['sample_idx']), data['gt_map_pts']._data.numpy())
         return data
 
     def __repr__(self):
@@ -752,7 +844,17 @@ class VectorizeMap(object):
         distances = np.linspace(0, line.length, self.sample_num)
         sampled_points = np.array([list(line.interpolate(distance).coords)
                                    for distance in distances]).squeeze()
-
+        '''
+        sampled_points_new = []
+        for sample_point in sampled_points:
+            if abs(sample_point[0]) <=30 and abs(sample_point[1] <=30):
+                sampled_points_new.append(sample_point)
+        print("3333333333333333333333333")
+        sampled_points_new = np.array(sampled_points_new)
+        #print(sampled_points_new)
+        sampled_points_new = np.array(sampled_points_new)
+        print(sampled_points_new)
+        '''
         return sampled_points
 
     def interp_fixed_dist(self, line):
@@ -768,10 +870,19 @@ class VectorizeMap(object):
         distances = list(np.arange(self.sample_dist, line.length, self.sample_dist))
         # make sure to sample at least two points when sample_dist > line.length
         distances = [0, ] + distances + [line.length, ]
-
+        #sample_points_tmp = [list(line.interpolate(distance).coords)
+        #                           for distance in distances])
         sampled_points = np.array([list(line.interpolate(distance).coords)
                                    for distance in distances]).squeeze()
-
+        '''
+        print("1111111111111111111111")
+        sampled_points_new = []
+        for sample_point in sampled_points:
+            if abs(sample_point[0]) <=30 and abs(sample_point[1] <=30):
+                sampled_points_new.append(sample_point)
+        sampled_points_new=np.array(sampled_points_new)
+        print(sampled_points_new)
+        '''
         return sampled_points
 
     def get_vectorized_lines(self, map_geoms: Dict) -> Dict:
@@ -795,7 +906,14 @@ class VectorizeMap(object):
                         line = np.array(line.coords)
                     else:
                         line = self.sample_fn(geom)
-                    line = line[:, :self.coords_dim]
+                    if len(line)<=1:
+                        return
+                    #elif len(line)==1:
+                    #    print("444444444444444444444444")
+                    #    print(line)
+                    #else:
+                    #print("4444444444444444")
+                    line = line[:, :self.coords_dim] # 20 * 2
 
                     if self.normalize:
                         line = self.normalize_line(line)
@@ -850,7 +968,8 @@ class VectorizeMap(object):
         else:
             permute_lines_list.append(line)
             permute_lines_list.append(np.flip(line, axis=0))
-
+        #print("5555555555555")
+        #print(permute_lines_list)
         permute_lines_array = np.stack(permute_lines_list, axis=0)
 
         if is_closed:
@@ -862,11 +981,15 @@ class VectorizeMap(object):
         else:
             # padding
             padding = np.full([permute_num * 2 - 2, num_points, self.coords_dim], padding)
+            #print('--00', padding.shape, permute_lines_array.shape)
             permute_lines_array = np.concatenate((permute_lines_array, padding), axis=0)
+            #print('--11', permute_lines_array.shape)
 
         return permute_lines_array
 
     def __call__(self, input_dict):
+        #print("1111111111111")
+        #print(input_dict.keys())
         if "map_geoms" not in input_dict:
             return input_dict
         map_geoms = input_dict['map_geoms']
@@ -874,10 +997,17 @@ class VectorizeMap(object):
 
         if self.permute:
             gt_map_labels, gt_map_pts = [], []
+            #print("777777777")
+            #print(vectors.items)
+            if vectors is None:
+                input_dict['gt_map_labels'] = np.array([])
+                input_dict['gt_map_pts'] = np.array([])
+                return input_dict
             for label, vecs in vectors.items():
                 for vec in vecs:
                     gt_map_labels.append(label)
                     gt_map_pts.append(vec)
+            #print("1111111111111111111111111111111")
             input_dict['gt_map_labels'] = np.array(gt_map_labels, dtype=np.int64)
             input_dict['gt_map_pts'] = np.array(gt_map_pts, dtype=np.float32).reshape(-1, 2 * (self.sample_num - 1),
                                                                                       self.sample_num, self.coords_dim)
