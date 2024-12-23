@@ -1,5 +1,8 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
-import os
+import os, sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+sys.path.append(project_root)
 import time
 import argparse
 
@@ -20,7 +23,8 @@ from modules.sparse4d_detector import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train E2E detector")
-    parser.add_argument("config", help="train config file path")
+    parser.add_argument("--config", default='dataset/config/sparsee2e_bs1_stage2_no_aug_zdrive.py', 
+                         help="train config file path")
     parser.add_argument("--launcher", choices=["none", "pytorch"], default="none")
     parser.add_argument(
         "--deterministic",
@@ -29,6 +33,7 @@ def parse_args():
     )
     parser.add_argument(
         "--no-validate",
+        default=True,
         action="store_true",
         help="whether not to evaluate the checkpoint during training",
     )
@@ -120,6 +125,10 @@ def main():
     model = build_module(cfg["model"])
     model.init_weights()
     logger.info(f"Model:\n{model}")
+
+    for name, param in model.named_parameters():
+        if "motion_head" not in name:
+            param.requires_grad = False
 
     ## Build Dataset
     datasets = [build_module(cfg["data"]["train"])]

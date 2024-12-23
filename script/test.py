@@ -27,12 +27,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train E2E detector")
     parser.add_argument(
         "--config",
-        default="dataset/config/sparse4d_temporal_r50_1x4_bs22_256x704_VAD_local.py",
+        default="dataset/config/sparsee2e_bs1_stage2_no_aug_zdrive.py",
         help="train config file path",
     )
     parser.add_argument(
         "--checkpoint",
-        default="/home/chengjiafeng/work/data/nuscene/dazhuo/nuscene_retrain_detect_latest.pth",
+        default="e2e_worklog/sparsee2e_bs1_stage2_no_aug_zdrive/iter_796.pth",
         help="checkpoint file",
     )
     parser.add_argument("--launcher", choices=["none", "pytorch"], default="none")
@@ -44,6 +44,7 @@ def parse_args():
     parser.add_argument(
         "--vis",
         action="store_true",
+        default=True,
         help="whether to set deterministic options for CUDNN backend.",
     )
     parser.add_argument(

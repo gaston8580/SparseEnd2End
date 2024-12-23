@@ -273,11 +273,11 @@ model = dict(
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
-            loss_weight=2.0,
+            loss_weight=0.0,
         ),
         loss_reg=dict(
             type="SparseBox3DLoss",
-            loss_box=dict(type="L1Loss", loss_weight=0.25),
+            loss_box=dict(type="L1Loss", loss_weight=0.0),
             loss_centerness=dict(type="CrossEntropyLoss", use_sigmoid=True),
             loss_yawness=dict(type="GaussianFocalLoss"),
             cls_allow_reverse=[class_names.index("barrier")],
@@ -387,8 +387,8 @@ model = dict(
                 type='HungarianLinesAssigner',
                 cost=dict(
                     type='MapQueriesCost',
-                    cls_cost=dict(type='FocalLossCost', weight=1.0),
-                    reg_cost=dict(type='LinesL1Cost', weight=10.0, beta=0.01, permute=True),
+                    cls_cost=dict(type='FocalLossCost', weight=0.0),
+                    reg_cost=dict(type='LinesL1Cost', weight=0.0, beta=0.01, permute=True),
                 ),
             ),
             num_cls=num_map_classes,
@@ -400,13 +400,13 @@ model = dict(
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
-            loss_weight=1.0,
+            loss_weight=0.0,
         ),
         loss_reg=dict(
             type="SparseLineLoss",
             loss_line=dict(
                 type='LinesL1Loss',
-                loss_weight=10.0,
+                loss_weight=0.0,
                 beta=0.01,
             ),
             num_sample=num_sample,
@@ -792,9 +792,9 @@ data = dict(
 seed = 100
 # RunnerSetting
 workflow = [("train", 1)]
-num_epochs = 150
+num_epochs = 2
 #num_iters_per_epoch = int(28130 // (num_gpus * batch_size))
-num_iters_per_epoch = int(1600 // (num_gpus * batch_size))
+num_iters_per_epoch = int(398 // (num_gpus * batch_size))
 runner = dict(
     type="IterBasedRunner",
     max_iters=num_iters_per_epoch * num_epochs,
@@ -858,6 +858,6 @@ evaluation = dict(
 # ================== placehold ========================
 work_dir = None
 #load_from = None
-load_from = '/home/ma-user/work/liuxu/end2end_algorithm_branches/dev1211_zdrive/end2end_algorithm/e2e_worklog/sparse4d_temporal_r50_1x4_bs22_256x704_zdrive_det_map_private_no_aug/latest.pth'
+load_from = 'ckpt/iter_14000.pth'
 resume_from = None
 gpu_ids = None  # only applicable to non-distributed training

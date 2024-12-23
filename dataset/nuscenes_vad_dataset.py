@@ -130,7 +130,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         input_dict = dict(
             sample_scene=info["scene_token"],
             sample_idx=info["token"],
-            pts_filename=info["lidar_path"],
+            pts_filename=info["lidar_path"].replace('/home/ma-user/work/data/ali_odd', '/data/sfs_turbo/perception/nuScenes/zdrive'),
             sweeps=info["sweeps"],
             timestamp=info["timestamp"] / 1e6,  # 单位为秒
             lidar2ego_translation=info["lidar2ego_translation"],
@@ -212,6 +212,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         else:
             # 判断每个3Dbox里面是否都有lidar点，只保留box内存在点的3D框.
             mask = np.array(info["num_lidar_pts"]) > 0
+        '''
         gt_bboxes_3d = np.array(info["gt_boxes"]).reshape(-1, 9)[:,:7]
         gt_names_3d = np.array(info["gt_names"])
         gt_labels_3d = []

@@ -159,7 +159,7 @@ class BEVRender:
 
         if with_infer:
             origin_path_pre = '/home/ma-user/work/data/ali_odd'
-            local_path_pre = '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd'
+            local_path_pre = '/data/sfs_turbo/perception/nuScenes/zdrive'
             img_path = data['cams']['CAM_FRONT_WIDE']['data_path']
             # # origin_path_pre = './data/nuscenes'
             # # local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes'
@@ -167,11 +167,11 @@ class BEVRender:
             # local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes_8clips_cam'
             # img_path = data['cams']['CAM_FRONT']['data_path']
             img_path = img_path.replace(origin_path_pre, local_path_pre)
-            save_result_path_prefix = img_path.split("/sample")[0]
-            save_result_path_suffix = img_path.split("/camera0")[1].split(".jpg")[0]
+            save_result_path_prefix = img_path.split("/clip")[0]
+            save_result_path_suffix = img_path.split("/")[-2]
             # save_result_path_prefix = img_path.split("/CAM_FRONT/")[0]
             # save_result_path_suffix = img_path.split("/CAM_FRONT/")[1].split(".jpg")[0]
-            save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results_dz_detect_private")
+            save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results")
             save_result_path = os.path.join(save_result_path_dir, save_result_path_suffix + ".json")
             result = json.load(open(save_result_path, "r"))
             
@@ -179,8 +179,8 @@ class BEVRender:
             self.draw_detection_pred(result)
             # self.draw_track_pred(result)
             # self.draw_motion_pred(result)
-            # self.draw_map_pred(result)
-            # self.draw_planning_pred(data, result)
+            self.draw_map_pred(result)
+            self.draw_planning_pred(data, result)
             self._render_command(data)
             self._render_pred_title()
         save_path_pred = os.path.join(self.pred_dir, str(index).zfill(4) + '.jpg')
@@ -228,8 +228,6 @@ class BEVRender:
             score = result['scores_3d'][i]
             if score < SCORE_THRESH: 
                 continue
-            print("=============")
-            print(score)
             color = color_mapping[i % len(color_mapping)]
 
             # draw corners
@@ -454,12 +452,14 @@ class BEVRender:
         #     traj_score = np.exp(sorted_score[j]) / norm_score
         #     self._render_traj(viz_traj, traj_score=traj_score,
         #                     colormap='autumn', dot_size=50)
-        plan_traj = np.array(result['plan_traj'])
-        plan_traj[abs(plan_traj) < 0.01] = 0.0
-        plan_traj = plan_traj.cumsum(axis=0)
-        plan_traj = np.concatenate((np.zeros((1, plan_traj.shape[1])), plan_traj), axis=0)
-        self._render_traj(plan_traj, traj_score=1.0,
-            colormap='autumn', dot_size=50)
+        plan_trajs = np.array(result['plan_traj'])
+        for i in range(len(plan_trajs)):
+            plan_traj = plan_trajs[i]
+            plan_traj[abs(plan_traj) < 0.01] = 0.0
+            plan_traj = plan_traj.cumsum(axis=0)
+            plan_traj = np.concatenate((np.zeros((1, plan_traj.shape[1])), plan_traj), axis=0)
+            self._render_traj(plan_traj, traj_score=1.0,
+                colormap='autumn', dot_size=50)
 
     def _render_traj(
         self, 

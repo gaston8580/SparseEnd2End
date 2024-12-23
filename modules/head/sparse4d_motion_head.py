@@ -21,6 +21,7 @@ from .loss.sparse4d_losses import *
 from tool.runner.fp16_utils import force_fp32
 
 __all__ = ["Sparse4DMotionHead"]
+torch.set_printoptions(sci_mode=False)
 
 
 class Sparse4DMotionHead(BaseModule):
@@ -49,8 +50,8 @@ class Sparse4DMotionHead(BaseModule):
         decouple_attn: bool = True,
         init_cfg: dict = None,
         num_reg_fcs: int = 2,
-        ego_fut_mode: int = 6,
-        his_ts: int = 20,
+        ego_fut_mode: int = 1,
+        his_ts: int = 10,
         fut_ts: int = 30,
         **kwargs,
     ):
@@ -115,14 +116,14 @@ class Sparse4DMotionHead(BaseModule):
         
         #### planning ####
         self.ego_fut_mode = ego_fut_mode
-        self.ego_his_encoder = nn.Linear(his_ts, self.embed_dims, bias=False)
+        self.ego_his_encoder = nn.Linear(his_ts * 2, self.embed_dims, bias=False)
         self.agent_self_attn = AgentSelfAttention(self.embed_dims, depth=2)
         self.ego_agent_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
         self.ego_map_cross_attn = CrossAttention(self.embed_dims, num_attn_heads=8)
         ego_fut_decoder = []
         self.num_reg_fcs = num_reg_fcs
         self.fut_ts = fut_ts
-        ego_fut_dec_in_dim = self.embed_dims * 2
+        ego_fut_dec_in_dim = self.embed_dims# * 2
         for _ in range(self.num_reg_fcs):
             ego_fut_decoder.append(nn.Linear(ego_fut_dec_in_dim, ego_fut_dec_in_dim))
             ego_fut_decoder.append(nn.ReLU())
@@ -202,9 +203,11 @@ class Sparse4DMotionHead(BaseModule):
                 hs_query=ego_agent_query, 
                 hs_key=map_query,
                 attention_mask=None)
-            ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, modes, 2D]
+            # ego_feats = torch.cat([ego_agent_query, ego_map_query], dim=-1)  # [B, modes, 2D]
+            ego_feats = ego_map_query + ego_agent_query  # [B, modes, D]
         else:
-            ego_feats = torch.cat([ego_agent_query, ego_agent_query], dim=-1)
+            # ego_feats = torch.cat([ego_agent_query, ego_agent_query], dim=-1)
+            ego_feats = ego_agent_query + ego_agent_query  # [B, modes, D]
 
         outputs_ego_trajs = self.ego_fut_decoder(ego_feats)
         outputs_ego_trajs = outputs_ego_trajs.reshape(bs, self.ego_fut_mode, self.fut_ts, 2)
@@ -259,7 +262,7 @@ class Sparse4DMotionHead(BaseModule):
         loss_plan_cls = self.loss_plan_cls(prob, target_gt, target_pred, loss_plan_cls_weight) * loss_plan_cls_mask
         loss_plan_cls = loss_plan_cls.sum() / loss_plan_cls_mask.sum().clamp_(min=1)
         output['loss_plan_reg'] = loss_plan_reg
-        output['loss_plan_cls'] = loss_plan_cls
+        # output['loss_plan_cls'] = loss_plan_cls
         return output
 
     def prepare_for_dn_loss(self, model_outs, prefix=""):
@@ -299,8 +302,8 @@ class Sparse4DMotionHead(BaseModule):
         get_top1 = 0
         if get_top1:
             argmax = torch.argmax(egp_fut_probs, dim=-1)
-            ego_fut_preds = ego_fut_preds[torch.arange(bs), argmax, ...]
-            egp_fut_probs = egp_fut_probs[torch.arange(bs), argmax, ...]
+            ego_fut_preds = ego_fut_preds[torch.arange(bs), argmax, ...].unsqueeze(1)
+            egp_fut_probs = egp_fut_probs[torch.arange(bs), argmax, ...].unsqueeze(1)
         for i in range(bs):
             outputs.append({'plan_traj': ego_fut_preds[i], 'prob': egp_fut_probs[i]})
         return outputs

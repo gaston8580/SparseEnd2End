@@ -361,9 +361,6 @@ class BEVRender:
         for cam_type, cam_info in info["cams"].items():
             data_path = cam_info["data_path"].replace('./data/nuscenes/samples', '/home/chengjiafeng/work/data/nuscene/nuscenes_8clips_cam')
             # data_path = cam_info["data_path"].replace('/home/ma-user/work/data/ali_odd', '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd')
-
-            print("==============")
-            print(data_path)
             image_paths.append(data_path)
             # obtain lidar to image transformation matrix
             lidar2cam_r = np.linalg.inv(np.array(cam_info["sensor2lidar_rotation"]))

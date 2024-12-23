@@ -10,6 +10,7 @@ from .nusc_pipeline import (
     NuScenesSparse4DAdaptor,
     Collect,
     VectorizeMap,
+    ZdriveSparse4DAdaptor,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "NuScenesSparse4DAdaptor",
     "Collect",
     "VectorizeMap",
+    "ZdriveSparse4DAdaptor",
 ]
