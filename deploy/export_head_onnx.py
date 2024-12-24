@@ -5,8 +5,6 @@ import time
 import copy
 import logging
 import argparse
-
-import onnx
 from onnxsim import simplify
 
 import torch
@@ -27,13 +25,13 @@ def parse_args():
     parser.add_argument(
         "--cfg",
         type=str,
-        default="dataset/config/sparse4d_temporal_r50_1x4_bs22_256x704_VAD.py",
+        default="dataset/config/sparsee2e_bs1_stage2_no_aug_zdrive.py",
         help="deploy config file path",
     )
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="e2e_worklog/sparse4d_temporal_r50_1x4_bs22_256x704_VAD/iter_330.pth",
+        default="ckpt/iter_796.pth",
         help="deploy ckpt path",
     )
     parser.add_argument(
@@ -61,9 +59,9 @@ def parse_args():
     return args
 
 
-class Sparse4DHead1st(nn.Module):
+class SparseE2E1st(nn.Module):
     def __init__(self, model):
-        super(Sparse4DHead1st, self).__init__()
+        super(SparseE2E1st, self).__init__()
         self.model = model
 
     @staticmethod
@@ -86,7 +84,7 @@ class Sparse4DHead1st(nn.Module):
         prediction = []
         tmp_outs = []
         for i, op in enumerate(self.operation_order):
-            print("i: ", i, "\top: ", op)
+            # print("i: ", i, "\top: ", op)
             if self.layers[i] is None:
                 continue
             elif op == "temp_gnn":
@@ -221,30 +219,21 @@ class Sparse4DHead1st(nn.Module):
         # motion head forward
         motion_head = self.model.motion_head
         data = {'ego_his_trajs': ego_his_trajs}
-        outputs = motion_head(det_instance_feature, map_instance_feature, data)
-        plan_traj = outputs['ego_fut_preds']
-        prob = outputs['prob']
+        motion_outputs = motion_head(det_instance_feature, map_instance_feature, data)
+        plan_traj = motion_outputs['ego_fut_preds']
+        prob = motion_outputs['prob']
 
-        return (
-            ## det outputs
-            det_cached_track_id,
-            det_cached_confidence,
-            det_cached_instance_feature,
-            det_cached_anchor,
-            ## map outputs
-            map_cached_track_id,
-            map_cached_confidence,
-            map_cached_instance_feature,
-            map_cached_anchor,
-            ## motion outputs
-            plan_traj,
-            prob,
-        )
+        outputs = {'det_cached_track_id': det_cached_track_id, 'det_cached_confidence': det_cached_confidence,
+                   'det_cached_instance_feature': det_cached_instance_feature, 'det_cached_anchor': det_cached_anchor,
+                   'map_cached_track_id': map_cached_track_id, 'map_cached_confidence': map_cached_confidence,
+                   'map_cached_instance_feature': map_cached_instance_feature, 'map_cached_anchor': map_cached_anchor,
+                   'plan_traj': plan_traj, 'prob': prob}
+        return outputs
 
 
-class Sparse4DHead2nd(nn.Module):
+class SparseE2E2nd(nn.Module):
     def __init__(self, model):
-        super(Sparse4DHead2nd, self).__init__()
+        super(SparseE2E2nd, self).__init__()
         self.model = model
 
     @staticmethod
@@ -274,7 +263,7 @@ class Sparse4DHead2nd(nn.Module):
         prediction = []
         tmp_outs = []
         for i, op in enumerate(self.operation_order):
-            print("op:  ", op)
+            # print("op:  ", op)
             if self.layers[i] is None:
                 continue
             elif op == "temp_gnn":
@@ -456,23 +445,13 @@ class Sparse4DHead2nd(nn.Module):
         plan_traj = outputs['ego_fut_preds']
         prob = outputs['prob']
 
-        return (
-            # det outputs
-            det_cached_track_id,
-            det_cached_confidence,
-            det_cached_instance_feature,
-            det_cached_anchor,
-            det_prev_id,
-            # map outputs
-            map_cached_track_id,
-            map_cached_confidence,
-            map_cached_instance_feature,
-            map_cached_anchor,
-            map_prev_id,
-            # motion outputs
-            plan_traj,
-            prob,
-        )
+        outputs = {'det_cached_track_id': det_cached_track_id, 'det_cached_confidence': det_cached_confidence,
+                   'det_cached_instance_feature': det_cached_instance_feature, 'det_cached_anchor': det_cached_anchor,
+                   'det_prev_id': det_prev_id, 'map_cached_track_id': map_cached_track_id, 
+                   'map_cached_confidence': map_cached_confidence, 
+                   'map_cached_instance_feature': map_cached_instance_feature, 'map_cached_anchor': map_cached_anchor,
+                   'map_prev_id': map_prev_id, 'plan_traj': plan_traj, 'prob': prob}
+        return outputs
 
 
 class InstanceBank(nn.Module):
@@ -653,7 +632,7 @@ if __name__ == "__main__":
     model.cuda().eval()
 
     BS = 1
-    NUMS_CAM = 6
+    NUMS_CAM = 7
     C = 3
     INPUT_H = 256
     INPUT_W = 704
@@ -680,7 +659,7 @@ if __name__ == "__main__":
     time_interval = dummy_time_interval
     image_wh = dummy_image_wh
     lidar2img = dummy_lidar2img
-    ego_his_trajs = torch.rand(1, 2, 2).cuda()
+    ego_his_trajs = torch.rand(1, 10, 2).cuda()
     metas_global2lidar = torch.rand(1, 4, 4).cuda()
     his_metas_lidar2global = torch.rand(1, 4, 4).cuda()
     # det inputs
@@ -700,8 +679,8 @@ if __name__ == "__main__":
     
     if not args.export_bank:
         if not args.export_2nd:
-            backbone_first_frame_head = Sparse4DHead1st(copy.deepcopy(model))
-            logger.info("Export Sparse4DHead1st Onnx >>>>>>>>>>>>>>>>")
+            backbone_first_frame_head = SparseE2E1st(copy.deepcopy(model))
+            logger.info("Export SparseE2E1st Onnx >>>>>>>>>>>>>>>>")
             time.sleep(2)
             with torch.no_grad():
                 torch.onnx.export(
@@ -742,8 +721,8 @@ if __name__ == "__main__":
                 os.system(f'trtexec --onnx={args.save_onnx1} --saveEngine={args.save_onnx1.replace(".onnx", ".engine")} '
                           '--plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so')
         else:
-            backbone_second_frame_head = Sparse4DHead2nd(copy.deepcopy(model))
-            logger.info("Export Sparse4DHead2nd Onnx >>>>>>>>>>>>>>>>")
+            backbone_second_frame_head = SparseE2E2nd(copy.deepcopy(model))
+            logger.info("Export SparseE2E2nd Onnx >>>>>>>>>>>>>>>>")
             time.sleep(2)
             with torch.no_grad():
                 torch.onnx.export(

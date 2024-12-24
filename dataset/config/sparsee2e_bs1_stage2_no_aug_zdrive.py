@@ -296,8 +296,8 @@ model = dict(
             embed_dims=embed_dims,
             anchor="data/zdrive/anchor/kmeans_map_100_zdrive.npy",
             anchor_handler=dict(type="SparsePoint3DKeyPointsGenerator"),
-            num_temp_instances=0 if temporal_map else -1,
-            #num_temp_instances=33 if temporal_map else -1,
+            # num_temp_instances=0 if temporal_map else -1,
+            num_temp_instances=33 if temporal_map else -1,
 
             confidence_decay=0.6,
             feat_grad=True,

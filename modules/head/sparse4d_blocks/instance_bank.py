@@ -38,7 +38,7 @@ class InstanceBank(nn.Module):
         anchor,
         anchor_handler=None,
         num_temp_instances=0,
-        default_time_interval=0.5,
+        default_time_interval=0.1,
         confidence_decay=0.6,
         anchor_grad=True,
         feat_grad=True,
