@@ -22,39 +22,14 @@ from tool.utils.logger import set_logger
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Deploy SparseEND2END Head!")
-    parser.add_argument(
-        "--cfg",
-        type=str,
-        default="dataset/config/sparsee2e_bs1_stage2_no_aug_zdrive.py",
-        help="deploy config file path",
-    )
-    parser.add_argument(
-        "--ckpt",
-        type=str,
-        default="ckpt/iter_796.pth",
-        help="deploy ckpt path",
-    )
-    parser.add_argument(
-        "--log",
-        type=str,
-        default="deploy/onnx/export_head_onnx.log",
-    )
-    parser.add_argument(
-        "--save_onnx1",
-        type=str,
-        default="deploy/onnx/SparseE2E1st.onnx",
-    )
-    parser.add_argument(
-        "--save_onnx2",
-        type=str,
-        default="deploy/onnx/SparseE2E2nd.onnx",
-    )
-    parser.add_argument(
-        "--export_2nd", default=1, action="store_true", help="export sparse4dhead2nd or sparse4dhead1nd onnx."
-    )
-    parser.add_argument(
-        "--export_bank", default=0, action="store_true", help="whether export instance_bank onnx model."
-    )
+    parser.add_argument("--cfg", type=str, default="dataset/config/sparsee2e_bs1_stage2_no_aug_zdrive.py", 
+                        help="deploy config file path")
+    parser.add_argument("--ckpt", type=str, default="ckpt/iter_796.pth", help="deploy ckpt path")
+    parser.add_argument("--log", type=str, default="deploy/onnx/export_head_onnx.log")
+    parser.add_argument("--save_onnx1", type=str, default="deploy/onnx/SparseE2E1st.onnx")
+    parser.add_argument("--save_onnx2", type=str, default="deploy/onnx/SparseE2E2nd.onnx")
+    parser.add_argument("--export_2nd", default=0, action="store_true", help="export sparse4dhead2nd or sparse4dhead1nd onnx.")
+    parser.add_argument("--export_bank", default=0, action="store_true", help="whether export instance_bank onnx model.")
     args = parser.parse_args()
     return args
 
@@ -719,7 +694,7 @@ if __name__ == "__main__":
 
                 os.system(f'onnxsim {args.save_onnx1} {args.save_onnx1}')
                 os.system(f'trtexec --onnx={args.save_onnx1} --saveEngine={args.save_onnx1.replace(".onnx", ".engine")} '
-                          '--plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so')
+                          '--plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so --noTF32')
         else:
             backbone_second_frame_head = SparseE2E2nd(copy.deepcopy(model))
             logger.info("Export SparseE2E2nd Onnx >>>>>>>>>>>>>>>>")
@@ -788,7 +763,7 @@ if __name__ == "__main__":
 
                 os.system(f'onnxsim {args.save_onnx2} {args.save_onnx2}')
                 os.system(f'trtexec --onnx={args.save_onnx2} --saveEngine={args.save_onnx2.replace(".onnx", ".engine")} '
-                          '--plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so')
+                          '--plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so --noTF32')
     else:
         instance_bank = InstanceBank(copy.deepcopy(model))
         print("Export InstanceBank Onnx >>>>>>>>>>>>>>>>")
