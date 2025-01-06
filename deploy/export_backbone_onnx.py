@@ -10,7 +10,7 @@ import torch
 from torch import nn
 from typing import Optional, Dict, Any
 
-from modules.sparse4d_detector import *
+from modules.sparsedrive import *
 from tool.utils.logger import set_logger
 from tool.utils.config import read_cfg
 

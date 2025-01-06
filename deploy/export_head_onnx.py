@@ -12,8 +12,8 @@ from onnxsim import simplify
 import torch
 from torch import nn
 
-from modules.sparse4d_detector import *
-from modules.head.sparse4d_blocks.instance_bank import topk
+from modules.sparsedrive import *
+from modules.head.blocks.instance_bank import topk
 from modules.ops import deformable_aggregation_function as DAF
 
 from tool.utils.config import read_cfg

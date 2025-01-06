@@ -16,7 +16,7 @@ from dataset.dataloader_wrapper import *
 from tool.tester.test_sdk import *
 
 from dataset import *
-from modules.sparse4d_detector import *
+from modules.sparsedrive import *
 
 
 def parse_args():

@@ -5,7 +5,18 @@ from typing import Optional
 from dataset.config.nusc_std_bbox3d import *
 
 
-from dataset.config.nusc_std_bbox3d import *
+def decode_box(box):
+    yaw = torch.atan2(box[..., SIN_YAW], box[..., COS_YAW])
+    box = torch.cat(
+        [
+            box[..., [X, Y, Z]],
+            box[..., [W, L, H]].exp(),
+            yaw[..., None],
+            box[..., VX:],
+        ],
+        dim=-1,
+    )
+    return box
 
 
 class SparseBox3DDecoder(object):
@@ -19,19 +30,6 @@ class SparseBox3DDecoder(object):
         self.num_output = num_output
         self.score_threshold = score_threshold
         self.sorted = sorted
-
-    def decode_box(self, box):
-        yaw = torch.atan2(box[:, SIN_YAW], box[:, COS_YAW])
-        box = torch.cat(
-            [
-                box[:, [X, Y, Z]],
-                box[:, [W, L, H]].exp(),
-                yaw[:, None],
-                box[:, VX:],
-            ],
-            dim=-1,
-        )
-        return box
 
     def decode(
         self,
@@ -87,7 +85,7 @@ class SparseBox3DDecoder(object):
                 if self.score_threshold is not None:
                     scores_origin = scores_origin[mask[i]]
 
-            box = self.decode_box(box)
+            box = decode_box(box)
             output.append(
                 {
                     "boxes_3d": box.cpu(),

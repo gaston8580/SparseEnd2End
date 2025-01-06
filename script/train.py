@@ -15,7 +15,7 @@ from tool.trainer.train_sdk import train_api
 from tool.trainer.utils import set_random_seed
 
 from dataset import *
-from modules.sparse4d_detector import *
+from modules.sparsedrive import *
 
 
 def parse_args():

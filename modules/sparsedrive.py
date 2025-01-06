@@ -6,7 +6,7 @@ from modules.cnn.base_detector import BaseDetector
 from modules.backbone import *
 from modules.neck import *
 from modules.head import *
-from modules.head.sparse4d_blocks.core_blocks import *
+from modules.head.blocks.core_blocks import *
 
 from tool.runner.fp16_utils import force_fp32, auto_fp16
 
@@ -17,23 +17,23 @@ try:
 except:
     DFA_VALID = False
 
-__all__ = ["Sparse4D"]
+__all__ = ["SparseDrive"]
 
 
-class Sparse4D(BaseDetector):
+class SparseDrive(BaseDetector):
     def __init__(
         self,
         img_backbone,
         img_neck,
-        head,
+        det_head,
         map_head=None,
-        motion_head=None,
+        motion_plan_head=None,
         depth_branch=None,
         use_grid_mask=True,
         use_deformable_func=False,
         init_cfg=None,
     ):
-        super(Sparse4D, self).__init__(init_cfg=init_cfg)
+        super(SparseDrive, self).__init__(init_cfg=init_cfg)
 
         # =========== build modules ===========
         def build_module(cfg):
@@ -44,13 +44,13 @@ class Sparse4D(BaseDetector):
         self.img_backbone = build_module(img_backbone)
         if img_neck is not None:
             self.img_neck = build_module(img_neck)
-        self.head = build_module(head)
+        self.det_head = build_module(det_head)
         self.map_head = None
-        self.motion_head = None
+        self.motion_plan_head = None
         if map_head is not None:
             self.map_head = build_module(map_head)
-        if motion_head is not None:
-            self.motion_head = build_module(motion_head)
+        if motion_plan_head is not None:
+            self.motion_plan_head = build_module(motion_plan_head)
         self.use_grid_mask = use_grid_mask
         if use_deformable_func:
             assert DFA_VALID, "deformable_aggregation needs to be set up."
@@ -101,33 +101,55 @@ class Sparse4D(BaseDetector):
 
     def forward_train(self, img, **data):
         feature_maps, depths = self.extract_feat(img, True, data)
-        model_outs = self.head(feature_maps, data)
+        det_model_outs = self.det_head(feature_maps, data)
 
         # map head forward
         if self.map_head is not None:
             map_model_outs = self.map_head(feature_maps, data)
 
         # motion head forward
-        if self.motion_head is not None:
-            agent_hs = model_outs['instance_feature']
-            map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
-            motion_model_outs = self.motion_head(agent_hs, map_hs, data)
+        # if self.motion_plan_head is not None:
+        #     agent_hs = det_model_outs['instance_feature']
+        #     map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
+        #     motion_model_outs = self.motion_plan_head(agent_hs, map_hs, data)
+        if self.motion_plan_head is not None:
+            motion_output, planning_output = self.motion_plan_head(
+                det_model_outs, 
+                map_model_outs, 
+                feature_maps,
+                data,
+                self.det_head.anchor_encoder,
+                self.det_head.instance_bank.mask,
+                self.det_head.instance_bank.anchor_handler,
+            )
+        else:
+            motion_output, planning_output = None, None
         
-        output = dict()
-        det_output = self.head.loss(model_outs, data)
-        output.update(det_output)
+        losses = dict()
+        det_output = self.det_head.loss(det_model_outs, data)
+        losses.update(det_output)
         if self.map_head is not None:
             map_losses_output = self.map_head.loss(map_model_outs, data)
-            output.update(map_losses_output)
-        if self.motion_head is not None:
-            motion_losses_output = self.motion_head.loss(motion_model_outs, data)
-            output.update(motion_losses_output)
+            losses.update(map_losses_output)
+        if self.motion_plan_head is not None:
+            # motion_losses_output = self.motion_plan_head.loss(motion_model_outs, data)
+            # losses.update(motion_losses_output)
+            motion_loss_cache = dict(
+                indices=self.det_head.sampler.indices, 
+            )
+            loss_motion = self.motion_plan_head.loss(
+                motion_output, 
+                planning_output, 
+                data, 
+                motion_loss_cache
+            )
+            losses.update(loss_motion)
         
         if depths is not None and "gt_depth" in data:
-            output["loss_dense_depth"] = self.depth_branch.loss(
+            losses["loss_dense_depth"] = self.depth_branch.loss(
                 depths, data["gt_depth"]
             )
-        return output
+        return losses
 
     def forward_test(self, img, **data):
         if isinstance(img, list):
@@ -149,18 +171,18 @@ class Sparse4D(BaseDetector):
             map_results = self.map_head.post_process(map_model_outs)
         
         # motion head forward
-        if self.motion_head is not None:
+        if self.motion_plan_head is not None:
             agent_hs = model_outs['instance_feature']
             map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
-            motion_model_outs = self.motion_head(agent_hs, map_hs, data)
-            motion_results = self.motion_head.post_process(motion_model_outs, data)
+            motion_model_outs = self.motion_plan_head(agent_hs, map_hs, data)
+            motion_results = self.motion_plan_head.post_process(motion_model_outs, data)
 
         output = [dict()] * batch_size
         for i in range(batch_size):
             output[i].update(det_results[i])
             if self.map_head is not None:
                 output[i].update(map_results[i])
-            if self.motion_head is not None:
+            if self.motion_plan_head is not None:
                 output[i].update(motion_results[i])
         return output
 

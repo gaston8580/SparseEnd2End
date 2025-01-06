@@ -18,7 +18,7 @@ from tool.runner.checkpoint import load_checkpoint
 from tool.trainer.utils import set_random_seed
 from tool.utils.save_bin import save_bins
 
-from modules.sparse4d_detector import Sparse4D
+from modules.sparsedrive import Sparse4D
 from dataset.dataloader_wrapper import dataloader_wrapper
 from dataset import NuScenes4DDetTrackDataset
 from dataset.utils.scatter_gather import scatter

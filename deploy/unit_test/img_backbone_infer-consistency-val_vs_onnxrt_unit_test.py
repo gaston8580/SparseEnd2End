@@ -9,7 +9,7 @@ import onnxruntime as ort
 import logging
 from tool.utils.logger import set_logger
 
-from modules.sparse4d_detector import *
+from modules.sparsedrive import *
 from typing import Optional, Dict, Any
 from tool.utils.config import read_cfg
 

@@ -10,7 +10,7 @@ from tool.runner.fp16_utils import wrap_fp16_model
 from tool.runner.checkpoint import load_checkpoint
 
 from tool.utils.data_parallel import E2EDataParallel
-from modules.sparse4d_detector import Sparse4D
+from modules.sparsedrive import Sparse4D
 from dataset import NuScenes4DDetTrackDataset
 
 

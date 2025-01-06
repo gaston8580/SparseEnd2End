@@ -1,10 +1,4 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
-import os,sys
-pro_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-print(pro_path)
-sys.path.append(pro_path)
-
-
 import torch
 import torch.nn as nn
 
@@ -15,22 +9,20 @@ from modules.cnn.base_module import BaseModule
 from tool.utils.dist_utils import reduce_mean
 from modules.cnn.transformer import *
 
-from .sparse4d_blocks.instance_bank import *
-from .sparse4d_blocks.core_blocks import *
-# from .sparse4d_blocks.sparse3d_embedding import *
-from .sparse4d_blocks.map_blocks import *
+from .blocks.instance_bank import *
+from .blocks.core_blocks import *
+from .blocks.sparse3d_embedding import *
 from .target import *
 from .decoder import *
 from .loss.base_loss import *
 from .loss.sparse4d_losses import *
-from .loss.sparse4d_map_losses import *
 
 from tool.runner.fp16_utils import force_fp32
 
-__all__ = ["Sparse4DMapHead"]
+__all__ = ["Sparse4DHead"]
 
 
-class Sparse4DMapHead(BaseModule):
+class Sparse4DHead(BaseModule):
     def __init__(
         self,
         instance_bank: dict,
@@ -49,9 +41,6 @@ class Sparse4DMapHead(BaseModule):
         sampler: dict = None,
         gt_cls_key: str = "gt_labels_3d",
         gt_reg_key: str = "gt_bboxes_3d",
-        gt_id_key: str = "track_id",
-        with_instance_id: bool = True,
-        task_prefix: str = 'det',
         reg_weights: List = None,
         operation_order: Optional[List[str]] = None,
         cls_threshold_to_reg: float = -1,
@@ -60,14 +49,11 @@ class Sparse4DMapHead(BaseModule):
         init_cfg: dict = None,
         **kwargs,
     ):
-        super(Sparse4DMapHead, self).__init__(init_cfg)
+        super(Sparse4DHead, self).__init__(init_cfg)
         self.num_decoder = num_decoder
         self.num_single_frame_decoder = num_single_frame_decoder
         self.gt_cls_key = gt_cls_key
         self.gt_reg_key = gt_reg_key
-        self.gt_id_key = gt_id_key
-        self.with_instance_id = with_instance_id
-        self.task_prefix = task_prefix
         self.cls_threshold_to_reg = cls_threshold_to_reg
         self.dn_loss_weight = dn_loss_weight
         self.decouple_attn = decouple_attn
@@ -179,8 +165,8 @@ class Sparse4DMapHead(BaseModule):
         ):
             self.sampler.dn_metas = None
         (
-            instance_feature,  # (1, 100, 256) float32
-            anchor,  # (1, 100, 40) float32
+            instance_feature,  # (1, 900, 256) float32
+            anchor,  # (1, 900, 11) float32
             temp_instance_feature,  # None
             temp_anchor,  # None
             time_interval,  # (1,)=0.5000 float32
@@ -194,7 +180,7 @@ class Sparse4DMapHead(BaseModule):
         dn_metas = None
         temp_dn_reg_target = None
         if self.training and hasattr(self.sampler, "get_dn_anchors"):
-            if "track_id" in metas["img_metas"][0] or self.gt_id_key in metas["img_metas"][0]:
+            if "track_id" in metas["img_metas"][0]:
 
                 gt_track_id = [
                     torch.from_numpy(x["track_id"]).cuda() for x in metas["img_metas"]
@@ -229,7 +215,7 @@ class Sparse4DMapHead(BaseModule):
                     ],
                     dim=-1,
                 )
-            anchor = torch.cat([anchor, dn_anchor], dim=1)  # (bs, 320+100, 11)
+            anchor = torch.cat([anchor, dn_anchor], dim=1)  # (bs, 320+900, 11)
             instance_feature = torch.cat(
                 [
                     instance_feature,
@@ -247,16 +233,18 @@ class Sparse4DMapHead(BaseModule):
                 num_free_instance:, num_free_instance:
             ] = dn_attn_mask  # (1120, 1120)
 
-        anchor_embed = self.anchor_encoder(anchor)  # (bs, 100, 256)
+        anchor_embed = self.anchor_encoder(anchor)  # (bs, 320+900, 256)
         if temp_anchor is not None:
             temp_anchor_embed = self.anchor_encoder(temp_anchor)
         else:
             temp_anchor_embed = None
 
-        prediction = []  # output=6 ([1, 100, 11] * 6 ) float32
-        classification = [] # output=6 ([1, 100, 10], None, None, None, None, None, [1, 100, 10]) float32
-        quality = [] # output=6 ([1, 100, 2], None, None, None, None, None, [1, 100, 2]) float32
+        # =================== forward the layers ====================
+        prediction = []  # output=6 ([1, 900, 11] * 6 ) float32
+        classification = ([])  # output=6 ([1, 900, 10], None, None, None, None, None, [1, 900, 10]) float32
+        quality = ([])  # output=6 ([1, 900, 2], None, None, None, None, None, [1, 900, 2]) float32
         for i, op in enumerate(self.operation_order):
+            # print(f"{i+1} / {len(self.operation_order)}, cur op >>>>>>>>>>>>>>>> {op}")
             if self.layers[i] is None:
                 continue
             elif op == "temp_gnn":
@@ -277,14 +265,15 @@ class Sparse4DMapHead(BaseModule):
                     query_pos=anchor_embed,
                     attn_mask=attn_mask,
                 )
-            elif op == "norm" or op == "ffn":  # [1, 100, 512] => [1, 100, 256]
+            elif op == "norm" or op == "ffn":  # [1, 900, 512] => [1, 900, 256]
                 instance_feature = self.layers[i](instance_feature)
-            elif op == "deformable":  # [1, 100, 256]
+            elif op == "deformable":  # [1, 900, 256]
                 # i = 0, 7
+                # 输出每个 anchor 的增强特征
                 instance_feature = self.layers[i](
-                    instance_feature,  # [1, 100, 256]
-                    anchor,  # [1, 100, 11]
-                    anchor_embed,  # [1, 100, 256]
+                    instance_feature,  # [1, 900, 256]
+                    anchor,  # [1, 900, 11]
+                    anchor_embed,  # [1, 900, 256]
                     feature_maps,  # [[1, 89760, 256], [6, 4, 2], [6, 4, 4]]
                     metas,
                 )
@@ -304,9 +293,7 @@ class Sparse4DMapHead(BaseModule):
                 classification.append(cls)
                 quality.append(qt)
                 if len(prediction) == self.num_single_frame_decoder:
-                    instance_feature, anchor = self.instance_bank.update(
-                        instance_feature, anchor, cls
-                    )
+                    instance_feature, anchor = self.instance_bank.update(instance_feature, anchor, cls)
                     if (
                         dn_metas is not None
                         and self.sampler.num_temp_dn_groups > 0  # default=3
@@ -332,13 +319,8 @@ class Sparse4DMapHead(BaseModule):
                 if i != len(self.operation_order) - 1:
                     # (1, 1220, 11) => (1, 1220, 256)
                     anchor_embed = self.anchor_encoder(anchor)
-                if (
-                    len(prediction) > self.num_single_frame_decoder
-                    and temp_anchor_embed is not None
-                ):
-                    temp_anchor_embed = anchor_embed[
-                        :, : self.instance_bank.num_temp_instances
-                    ]
+                if (len(prediction) > self.num_single_frame_decoder and temp_anchor_embed is not None):
+                    temp_anchor_embed = anchor_embed[:, : self.instance_bank.num_temp_instances]
             else:
                 raise NotImplementedError(f"{op} is not supported.")
 
@@ -381,7 +363,6 @@ class Sparse4DMapHead(BaseModule):
             dn_instance_feature = instance_feature[:, num_free_instance:]
             dn_anchor = anchor[:, num_free_instance:]
             instance_feature = instance_feature[:, :num_free_instance]
-            anchor_embed = anchor_embed[:, :num_free_instance]
             anchor = anchor[:, :num_free_instance]
             cls = cls[:, :num_free_instance]
 
@@ -396,22 +377,19 @@ class Sparse4DMapHead(BaseModule):
         # 2) split learnable instance
         output.update(
             {
-                "classification": classification,  # list:length=6 ([1, 100, 10], None, None, None, None, [1, 100, 10])
-                "prediction": prediction,  # list:length=6 ([1, 100, 11], ..., [1, 100, 11])
-                "quality": quality,  # list:length=6 ([1, 100, 2], ..., [1, 100, 2])
+                "classification": classification,  # list:length=6 ([1, 900, 10], None, None, None, None, [1, 900, 10])
+                "prediction": prediction,  # list:length=6 ([1, 900, 11], ..., [1, 900, 11])
+                "quality": quality,  # list:length=6 ([1, 900, 2], ..., [1, 900, 2])
                 "instance_feature": instance_feature,
-                "anchor_embed": anchor_embed,
             }
         )
 
         # cache current instances for temporal modeling
-        # input: [1, 100, 256], [1, 100, 11], [1, 100, 10],  metas, feature_maps
+        # input: [1, 900, 256], [1, 900, 11], [1, 900, 10],  metas, feature_maps
         self.instance_bank.cache(instance_feature, anchor, cls, metas, feature_maps)
-        if self.with_instance_id:
-            instance_id = self.instance_bank.get_instance_id(
-                cls, anchor, self.decoder.score_threshold
-            )
-            output["instance_id"] = instance_id
+        if not self.training:
+            track_id = self.instance_bank.get_track_id(cls, anchor, self.decoder.score_threshold)
+            output["track_id"] = track_id  # [1, 900], int64
         return output
 
     @force_fp32(apply_to=("model_outs"))
@@ -432,7 +410,6 @@ class Sparse4DMapHead(BaseModule):
                 data[self.gt_reg_key],
             )
             reg_target = reg_target[..., : len(self.reg_weights)]
-            reg_target_full = reg_target.clone()
             mask = torch.logical_not(torch.all(reg_target == 0, dim=-1))
             mask_valid = mask.clone()
 
@@ -464,13 +441,12 @@ class Sparse4DMapHead(BaseModule):
                 reg_target,
                 weight=reg_weights,
                 avg_factor=num_pos,
-                prefix=f"{self.task_prefix}_",
                 suffix=f"_{decoder_idx}",
                 quality=qt,
                 cls_target=cls_target,
             )
 
-            output[f"{self.task_prefix}_loss_cls_{decoder_idx}"] = cls_loss
+            output[f"loss_cls_{decoder_idx}"] = cls_loss
             output.update(reg_loss)
 
         if "dn_prediction" not in model_outs:
@@ -514,10 +490,9 @@ class Sparse4DMapHead(BaseModule):
                 dn_reg_target,
                 avg_factor=num_dn_pos,
                 weight=reg_weights,
-                prefix=f"{self.task_prefix}_",
                 suffix=f"_dn_{decoder_idx}",
             )
-            output[f"{self.task_prefix}_loss_cls_dn_{decoder_idx}"] = cls_loss
+            output[f"loss_cls_dn_{decoder_idx}"] = cls_loss
             output.update(reg_loss)
         return output
 
@@ -556,169 +531,3 @@ class Sparse4DMapHead(BaseModule):
             model_outs.get("quality"),
             output_idx=output_idx,
         )
-
-
-if __name__ == '__main__':
-    embed_dims = 256
-    num_groups = 8
-    num_decoder = 6
-    num_single_frame_decoder = 1
-    strides = [4, 8, 16, 32]
-    num_levels = len(strides)
-    num_depth_layers = 3
-    drop_out = 0.1
-    temporal = True
-    temporal_map = True
-    decouple_attn_map = False
-    num_sample = 20
-    num_single_frame_decoder_map = 1
-    use_deformable_func = True
-
-    map_class_names = [
-        'ped_crossing',
-        'divider',
-        'boundary',
-    ]
-    num_map_classes = len(map_class_names)
-    roi_size = (30, 60)
-    
-    map_head = dict(
-            type="Sparse4DHead",
-            cls_threshold_to_reg=0.05,
-            decouple_attn=decouple_attn_map,
-            instance_bank=dict(
-                type="InstanceBank",
-                num_anchor=100,
-                embed_dims=embed_dims,
-                anchor="data/kmeans/kmeans_map_100.npy",
-                anchor_handler=dict(type="SparsePoint3DKeyPointsGenerator"),
-                num_temp_instances=0 if temporal_map else -1,
-                confidence_decay=0.6,
-                feat_grad=True,
-            ),
-            anchor_encoder=dict(
-                type="SparsePoint3DEncoder",
-                embed_dims=embed_dims,
-                num_sample=num_sample,
-            ),
-            num_single_frame_decoder=num_single_frame_decoder_map,
-            operation_order=(
-                [
-                    "gnn",
-                    "norm",
-                    "deformable",
-                    "ffn",
-                    "norm",
-                    "refine",
-                ]
-                * num_single_frame_decoder_map
-                + [
-                    "temp_gnn",
-                    "gnn",
-                    "norm",
-                    "deformable",
-                    "ffn",
-                    "norm",
-                    "refine",
-                ]
-                * (num_decoder - num_single_frame_decoder_map)
-            )[:],
-            temp_graph_model=dict(
-                type="MultiheadAttention",
-                embed_dims=embed_dims if not decouple_attn_map else embed_dims * 2,
-                num_heads=num_groups,
-                batch_first=True,
-                attn_drop=drop_out,
-            )
-            if temporal_map
-            else None,
-            graph_model=dict(
-                type="MultiheadAttention",
-                embed_dims=embed_dims if not decouple_attn_map else embed_dims * 2,
-                num_heads=num_groups,
-                batch_first=True,
-                attn_drop=drop_out,
-            ),
-            norm_layer=dict(type="LayerNorm", normalized_shape=embed_dims),
-            ffn=dict(
-                type="AsymmetricFFN",
-                in_channels=embed_dims * 2,
-                pre_norm=dict(type="LayerNorm"),
-                embed_dims=embed_dims,
-                feedforward_channels=embed_dims * 4,
-                num_fcs=2,
-                ffn_drop=drop_out,
-                act_cfg=dict(type="ReLU", inplace=True),
-            ),
-            deformable_model=dict(
-                type="DeformableAttentionAggr",
-                embed_dims=embed_dims,
-                num_groups=num_groups,
-                num_levels=num_levels,
-                num_cams=6,
-                attn_drop=0.15,
-                use_deformable_func=use_deformable_func,
-                use_camera_embed=True,
-                residual_mode="cat",
-                kps_generator=dict(
-                    type="SparsePoint3DKeyPointsGenerator",
-                    embed_dims=embed_dims,
-                    num_sample=num_sample,
-                    num_learnable_pts=3,
-                    fix_height=(0, 0.5, -0.5, 1, -1),
-                    ground_height=-1.84023, # ground height in lidar frame
-                ),
-            ),
-            refine_layer=dict(
-                type="SparsePoint3DRefinementModule",
-                embed_dims=embed_dims,
-                num_sample=num_sample,
-                num_cls=num_map_classes,
-            ),
-            sampler=dict(
-                type="SparsePoint3DTarget",
-                assigner=dict(
-                    type='HungarianLinesAssigner',
-                    cost=dict(
-                        type='MapQueriesCost',
-                        cls_cost=dict(type='FocalLossCost', weight=1.0),
-                        reg_cost=dict(type='LinesL1Cost', weight=10.0, beta=0.01, permute=True),
-                    ),
-                ),
-                num_cls=num_map_classes,
-                num_sample=num_sample,
-                roi_size=roi_size,
-            ),
-            loss_cls=dict(
-                type="FocalLoss",
-                use_sigmoid=True,
-                gamma=2.0,
-                alpha=0.25,
-                loss_weight=1.0,
-            ),
-            loss_reg=dict(
-                type="SparseLineLoss",
-                loss_line=dict(
-                    type='LinesL1Loss',
-                    loss_weight=10.0,
-                    beta=0.01,
-                ),
-                num_sample=num_sample,
-                roi_size=roi_size,
-            ),
-            decoder=dict(type="SparsePoint3DDecoder"),
-            reg_weights=[1.0] * 40,
-            gt_cls_key="gt_map_labels",
-            gt_reg_key="gt_map_pts",
-            gt_id_key="map_instance_id",
-            with_instance_id=False,
-            task_prefix='map',
-    )
-
-    def build_module(cfg):
-        cfg2 = cfg.copy()
-        type = cfg2.pop("type")
-        return eval(type)(**cfg2)
-    
-    map_head = build_module(map_head)
-    print(1)

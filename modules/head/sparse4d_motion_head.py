@@ -10,9 +10,9 @@ from modules.cnn.base_module import BaseModule
 from tool.utils.dist_utils import reduce_mean
 from modules.cnn.transformer import *
 
-from .sparse4d_blocks.instance_bank import *
-from .sparse4d_blocks.core_blocks import *
-from .sparse4d_blocks.sparse3d_embedding import *
+from .blocks.instance_bank import *
+from .blocks.core_blocks import *
+from .blocks.sparse3d_embedding import *
 from .target import *
 from .decoder import *
 from .loss.base_loss import *
