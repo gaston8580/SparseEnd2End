@@ -374,7 +374,7 @@ class DenseDepthNet(BaseModule):
 class AsymmetricFFN(BaseModule):
     def __init__(
         self,
-        in_channels=256 * 2,
+        in_channels=None,
         embed_dims=256,
         feedforward_channels=1024,
         num_fcs=2,
@@ -395,7 +395,7 @@ class AsymmetricFFN(BaseModule):
         layers = []
         if in_channels is None:
             in_channels = embed_dims
-        self.pre_norm = nn.modules.normalization.LayerNorm(normalized_shape=512)
+        self.pre_norm = nn.modules.normalization.LayerNorm(normalized_shape=in_channels)
 
         for _ in range(num_fcs - 1):
             layers.append(

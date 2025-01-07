@@ -1,67 +1,9 @@
-# Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
-"""
-mAP: 0.4645
-mATE: 0.5267
-mASE: 0.2663
-mAOE: 0.4413
-mAVE: 0.2286
-mAAE: 0.1889
-NDS: 0.5623
-Eval time: 115.3s
-
-Per-class results:
-Object Class	AP	ATE	ASE	AOE	AVE	AAE
-car	0.665	0.375	0.144	0.053	0.185	0.193
-truck	0.379	0.527	0.182	0.068	0.179	0.200
-bus	0.421	0.698	0.200	0.132	0.405	0.217
-trailer	0.184	0.908	0.243	0.514	0.198	0.103
-construction_vehicle	0.113	0.812	0.498	1.316	0.113	0.406
-pedestrian	0.536	0.531	0.293	0.530	0.297	0.149
-motorcycle	0.483	0.470	0.254	0.391	0.320	0.235
-bicycle	0.446	0.374	0.262	0.880	0.132	0.008
-traffic_cone	0.717	0.245	0.312	nan	nan	nan
-barrier	0.645	0.278	0.276	0.089	nan	nan
-
-
-Per-class results:
-		         AMOTA	AMOTP	RECALL	MOTAR	GT	MOTA	MOTP	MT	ML	FAF	TP	FP	FN	IDS	FRAG	TID	LGD
-bicycle     0.445	1.196	0.493	0.802	1993	0.394	0.484	45	66	13.7	979	194	1010	4	5	1.48	1.75
-bus     	   0.491	1.330	0.577	0.721	2112	0.415	0.777	33	40	21.4	1216	339	893	3	16	1.16	2.48
-car     	    0.673	0.810	0.729	0.821	58317	0.596	0.486	2024	984	131.9	42358	7587	15793	166	330	0.84	1.15
-motorcy  0.489	1.154	0.556	0.858	1977	0.472	0.533	41	45	11.6	1087	154	878	12	9	2.04	2.31
-pedestr    0.531	1.133	0.621	0.789	25423	0.479	0.679	614	522	74.9	15447	3266	9623	353	247	1.51	2.02
-trailer 	  0.081	1.607	0.327	0.303	2425	0.099	0.908	24	83	53.9	791	551	1631	3	11	1.36	3.09
-truck   	  0.418	1.168	0.550	0.646	9650	0.355	0.612	177	226	49.2	5298	1877	4342	10	61	1.44	2.10
-
-Aggregated results:
-AMOTA	0.457
-AMOTP	1.196
-RECALL	0.561
-MOTAR	0.706
-GT	14556
-MOTA	0.421
-MOTP	0.640
-MT	2958
-ML	1966
-FAF	51.0
-TP	67176
-FP	13968
-FN	34170
-IDS	541
-FRAG	679
-TID	1.40
-LGD	1.99
-Eval time: 1588.5s
-"""
-
-
 log_level = "INFO"
 dist_params = dict(backend="nccl")
 
 total_batch_size = 1
 num_gpus = 1
 batch_size = total_batch_size // num_gpus
-
 
 # ================== model ========================
 class_names = [
@@ -103,14 +45,22 @@ roi_size = (60, 60)
 
 # pnp
 n = 5
-fut_ts = 12 * n
+# fut_ts = 12 * n
+fut_ts = 6 * n
 fut_mode = 6
 ego_fut_ts = 6 * n
 ego_fut_mode = 6
 queue_length = (3 * n) + 1  # history + current
 
+task_config = dict(
+    with_det=True,
+    with_map=True,
+    with_motion_plan=True,
+)
+
 model = dict(
     type="SparseDrive",
+    task_config=task_config,
     use_grid_mask=True,
     use_deformable_func=use_deformable_func,
     img_backbone=dict(
@@ -248,7 +198,7 @@ model = dict(
         ),
         sampler=dict(
             type="SparseBox3DTarget",
-            num_dn_groups=5,
+            num_dn_groups=0,
             num_temp_dn_groups=3,
             dn_noise_scale=[2.0] * 3 + [0.5] * 7,
             max_dn_gt=32,
@@ -427,8 +377,8 @@ model = dict(
         fut_mode=fut_mode,
         ego_fut_ts=ego_fut_ts,
         ego_fut_mode=ego_fut_mode,
-        motion_anchor=f'data/kmeans/kmeans_motion_{fut_mode}_zdrive.npy',
-        plan_anchor=f'data/kmeans/kmeans_plan_{ego_fut_mode}_zdrive.npy',
+        motion_anchor=f'data/zdrive/anchor/kmeans_motion_{fut_mode}_zdrive.npy',
+        plan_anchor=f'data/zdrive/anchor/kmeans_plan_{ego_fut_mode}_zdrive.npy',
         embed_dims=embed_dims,
         decouple_attn=decouple_attn_motion,
         instance_queue=dict(
@@ -582,6 +532,8 @@ train_pipeline = [
             "fut_valid_flag",
             'gt_map_labels',
             'gt_map_pts',
+            "agent_fut_trajs",
+            "agent_fut_masks",
             "ego_his_trajs",
             "ego_fut_trajs",
             "ego_fut_masks",

@@ -68,5 +68,6 @@ class MotionPlanningRefinementModule(BaseModule):
         motion_reg = self.motion_reg_branch(motion_query).reshape(bs, num_anchor, self.fut_mode, self.fut_ts, 2)
         plan_cls = self.plan_cls_branch(plan_query).squeeze(-1)
         plan_reg = self.plan_reg_branch(plan_query).reshape(bs, 1, 3 * self.ego_fut_mode, self.ego_fut_ts, 2)
+        # plan_reg = self.plan_reg_branch(plan_query).reshape(bs, 1, 1 * self.ego_fut_mode, self.ego_fut_ts, 2)
         planning_status = self.plan_status_branch(ego_feature + ego_anchor_embed)
         return motion_cls, motion_reg, plan_cls, plan_reg, planning_status

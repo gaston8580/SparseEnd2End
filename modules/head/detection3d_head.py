@@ -41,6 +41,9 @@ class Sparse4DHead(BaseModule):
         sampler: dict = None,
         gt_cls_key: str = "gt_labels_3d",
         gt_reg_key: str = "gt_bboxes_3d",
+        gt_id_key: str = "track_id",
+        with_instance_id: bool = True,
+        task_prefix: str = 'det',
         reg_weights: List = None,
         operation_order: Optional[List[str]] = None,
         cls_threshold_to_reg: float = -1,
@@ -54,6 +57,9 @@ class Sparse4DHead(BaseModule):
         self.num_single_frame_decoder = num_single_frame_decoder
         self.gt_cls_key = gt_cls_key
         self.gt_reg_key = gt_reg_key
+        self.gt_id_key = gt_id_key
+        self.with_instance_id = with_instance_id
+        self.task_prefix = task_prefix
         self.cls_threshold_to_reg = cls_threshold_to_reg
         self.dn_loss_weight = dn_loss_weight
         self.decouple_attn = decouple_attn
@@ -180,11 +186,8 @@ class Sparse4DHead(BaseModule):
         dn_metas = None
         temp_dn_reg_target = None
         if self.training and hasattr(self.sampler, "get_dn_anchors"):
-            if "track_id" in metas["img_metas"][0]:
-
-                gt_track_id = [
-                    torch.from_numpy(x["track_id"]).cuda() for x in metas["img_metas"]
-                ]  # [(nums_gt,), ...]
+            if self.gt_id_key in metas["img_metas"][0]:
+                gt_track_id = [torch.from_numpy(x[self.gt_id_key]).cuda() for x in metas["img_metas"]]
             else:
                 gt_track_id = None
             dn_metas = self.sampler.get_dn_anchors(
@@ -381,13 +384,14 @@ class Sparse4DHead(BaseModule):
                 "prediction": prediction,  # list:length=6 ([1, 900, 11], ..., [1, 900, 11])
                 "quality": quality,  # list:length=6 ([1, 900, 2], ..., [1, 900, 2])
                 "instance_feature": instance_feature,
+                "anchor_embed": anchor_embed,
             }
         )
 
         # cache current instances for temporal modeling
         # input: [1, 900, 256], [1, 900, 11], [1, 900, 10],  metas, feature_maps
         self.instance_bank.cache(instance_feature, anchor, cls, metas, feature_maps)
-        if not self.training:
+        if self.with_instance_id:
             track_id = self.instance_bank.get_track_id(cls, anchor, self.decoder.score_threshold)
             output["track_id"] = track_id  # [1, 900], int64
         return output

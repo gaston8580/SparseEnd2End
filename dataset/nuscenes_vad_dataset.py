@@ -145,6 +145,8 @@ class NuScenes4DDetTrackVADDataset(Dataset):
             map_annos = info['map_annos'],
             fut_valid_flag=info['fut_valid_flag'],
             #map_location=info['map_location'],
+            agent_fut_trajs=np.array(info['gt_agent_fut_trajs']),
+            agent_fut_masks=np.array(info['gt_agent_fut_masks']),
             ego_his_trajs=np.array(info['gt_ego_his_trajs']),
             ego_fut_trajs=np.array(info['gt_ego_fut_trajs']),
             ego_fut_masks= np.array(info['gt_ego_fut_masks']),

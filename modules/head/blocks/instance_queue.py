@@ -200,7 +200,7 @@ class InstanceQueue(nn.Module):
     def cache_motion(self, instance_feature, det_output, metas):
         det_classification = det_output["classification"][-1].sigmoid()
         det_confidence = det_classification.max(dim=-1).values
-        instance_id = det_output['instance_id']
+        instance_id = det_output['track_id']
         self.metas = metas
         self.prev_confidence = det_confidence.detach()
         self.prev_instance_id = instance_id

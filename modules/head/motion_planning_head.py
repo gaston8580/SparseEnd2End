@@ -77,9 +77,7 @@ class MotionPlanningHead(BaseModule):
             "ffn": ffn,
             "refine": refine_layer,
         }
-        self.layers = nn.ModuleList(
-            [build_module(self.op_config_map.get(op)) for op in self.operation_order]
-        )
+        self.layers = nn.ModuleList([build_module(self.op_config_map.get(op)) for op in self.operation_order])
         self.embed_dims = embed_dims
 
         if self.decouple_attn:
@@ -150,12 +148,7 @@ class MotionPlanningHead(BaseModule):
         yaw = torch.atan2(boxes[..., SIN_YAW], boxes[..., COS_YAW])
         cos_yaw = torch.cos(yaw)
         sin_yaw = torch.sin(yaw)
-        rot_mat_T = torch.stack(
-            [
-                torch.stack([cos_yaw, sin_yaw]),
-                torch.stack([-sin_yaw, cos_yaw]),
-            ]
-        )
+        rot_mat_T = torch.stack([torch.stack([cos_yaw, sin_yaw]), torch.stack([-sin_yaw, cos_yaw]),])
 
         trajs_lidar = torch.einsum('abcij,jkab->abcik', trajs, rot_mat_T)
         return trajs_lidar
@@ -241,9 +234,7 @@ class MotionPlanningHead(BaseModule):
 
         # =========== mode anchor init ===========
         motion_anchor = self.get_motion_anchor(det_classification, det_anchors)
-        plan_anchor = torch.tile(
-            self.plan_anchor[None], (bs, 1, 1, 1, 1)
-        )
+        plan_anchor = torch.tile(self.plan_anchor[None], (bs, 1, 1, 1, 1))
 
         # =========== mode query init ===========
         motion_mode_query = self.motion_anchor_encoder(gen_sineembed_for_position(motion_anchor[..., -1, :]))
@@ -364,8 +355,8 @@ class MotionPlanningHead(BaseModule):
                 num_pos
             ) = self.motion_sampler.sample(
                 reg,
-                data["gt_agent_fut_trajs"],
-                data["gt_agent_fut_masks"],
+                data["agent_fut_trajs"],
+                data["agent_fut_masks"],
                 motion_loss_cache,
             )
             num_pos = max(reduce_mean(num_pos), 1.0)

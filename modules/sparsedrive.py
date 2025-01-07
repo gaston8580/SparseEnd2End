@@ -23,6 +23,7 @@ __all__ = ["SparseDrive"]
 class SparseDrive(BaseDetector):
     def __init__(
         self,
+        task_config: dict,
         img_backbone,
         img_neck,
         det_head,
@@ -34,6 +35,7 @@ class SparseDrive(BaseDetector):
         init_cfg=None,
     ):
         super(SparseDrive, self).__init__(init_cfg=init_cfg)
+        self.task_config = task_config
 
         # =========== build modules ===========
         def build_module(cfg):
@@ -44,12 +46,11 @@ class SparseDrive(BaseDetector):
         self.img_backbone = build_module(img_backbone)
         if img_neck is not None:
             self.img_neck = build_module(img_neck)
-        self.det_head = build_module(det_head)
-        self.map_head = None
-        self.motion_plan_head = None
-        if map_head is not None:
+        if self.task_config['with_det']:
+            self.det_head = build_module(det_head)
+        if self.task_config['with_map']:
             self.map_head = build_module(map_head)
-        if motion_plan_head is not None:
+        if self.task_config['with_motion_plan']:
             self.motion_plan_head = build_module(motion_plan_head)
         self.use_grid_mask = use_grid_mask
         if use_deformable_func:
@@ -63,6 +64,14 @@ class SparseDrive(BaseDetector):
             self.grid_mask = GridMask(
                 True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7
             )
+
+    def init_weights(self):
+        if self.task_config['with_det']:
+            self.det_head.init_weights()
+        if self.task_config['with_map']:
+            self.map_head.init_weights()
+        if self.task_config['with_motion_plan']:
+            self.motion_plan_head.init_weights()
 
     @auto_fp16(apply_to=("img",), out_fp32=True)
     def extract_feat(self, img, return_depth=False, metas=None):
@@ -104,15 +113,11 @@ class SparseDrive(BaseDetector):
         det_model_outs = self.det_head(feature_maps, data)
 
         # map head forward
-        if self.map_head is not None:
+        if self.task_config['with_map']:
             map_model_outs = self.map_head(feature_maps, data)
 
         # motion head forward
-        # if self.motion_plan_head is not None:
-        #     agent_hs = det_model_outs['instance_feature']
-        #     map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
-        #     motion_model_outs = self.motion_plan_head(agent_hs, map_hs, data)
-        if self.motion_plan_head is not None:
+        if self.task_config['with_motion_plan']:
             motion_output, planning_output = self.motion_plan_head(
                 det_model_outs, 
                 map_model_outs, 
@@ -128,15 +133,11 @@ class SparseDrive(BaseDetector):
         losses = dict()
         det_output = self.det_head.loss(det_model_outs, data)
         losses.update(det_output)
-        if self.map_head is not None:
+        if self.task_config['with_map']:
             map_losses_output = self.map_head.loss(map_model_outs, data)
             losses.update(map_losses_output)
-        if self.motion_plan_head is not None:
-            # motion_losses_output = self.motion_plan_head.loss(motion_model_outs, data)
-            # losses.update(motion_losses_output)
-            motion_loss_cache = dict(
-                indices=self.det_head.sampler.indices, 
-            )
+        if self.task_config['with_motion_plan']:
+            motion_loss_cache = dict(indices=self.det_head.sampler.indices,)
             loss_motion = self.motion_plan_head.loss(
                 motion_output, 
                 planning_output, 
@@ -161,17 +162,17 @@ class SparseDrive(BaseDetector):
         feature_maps = self.extract_feat(img)
 
         # det head forward
-        model_outs = self.head(feature_maps, data)
-        det_results = self.head.post_process(model_outs)
+        model_outs = self.det_head(feature_maps, data)
+        det_results = self.det_head.post_process(model_outs)
         batch_size = len(det_results)
 
         # map head forward
-        if self.map_head is not None:
+        if self.task_config['with_map']:
             map_model_outs = self.map_head(feature_maps, data)
             map_results = self.map_head.post_process(map_model_outs)
         
         # motion head forward
-        if self.motion_plan_head is not None:
+        if self.task_config['with_motion_plan']:
             agent_hs = model_outs['instance_feature']
             map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
             motion_model_outs = self.motion_plan_head(agent_hs, map_hs, data)
