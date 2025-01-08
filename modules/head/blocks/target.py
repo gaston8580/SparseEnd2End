@@ -89,12 +89,12 @@ class PlanningTarget():
 
         bs = reg_pred.shape[0]
         bs_indices = torch.arange(bs, device=reg_pred.device)
-        cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
-
-        cls_pred = cls_pred.reshape(bs, 3, 1, self.ego_fut_mode)
-        reg_pred = reg_pred.reshape(bs, 3, 1, self.ego_fut_mode, self.ego_fut_ts, 2)
-        cls_pred = cls_pred[bs_indices, cmd]
-        reg_pred = reg_pred[bs_indices, cmd]
+        cmd = data['ego_fut_cmd'].argmax(dim=-1)
+        
+        # cls_pred = cls_pred.reshape(bs, 3, 1, self.ego_fut_mode)  ##### for dz
+        # reg_pred = reg_pred.reshape(bs, 3, 1, self.ego_fut_mode, self.ego_fut_ts, 2)
+        # cls_pred = cls_pred[bs_indices, cmd]
+        # reg_pred = reg_pred[bs_indices, cmd]
         cls_target = get_cls_target(reg_pred, gt_reg_target, gt_reg_mask)
         cls_weight = gt_reg_mask.any(dim=-1)
         best_reg = get_best_reg(reg_pred, gt_reg_target, gt_reg_mask)

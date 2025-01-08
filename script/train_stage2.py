@@ -127,7 +127,7 @@ def main():
     logger.info(f"Model:\n{model}")
 
     for name, param in model.named_parameters():
-        if "motion_head" not in name:
+        if "motion_plan_head" not in name:
             param.requires_grad = False
 
     ## Build Dataset

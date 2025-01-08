@@ -63,7 +63,7 @@ class LoadMultiViewImageFromFiles(object):
         filename = results["img_filename"]
         # img is of shape (h， w, c, num_views)(900,1600,3,6)
         img_paths = [name for name in filename]
-        img = np.stack([cv2.resize(cv2.imread(name), dsize=(640,480)) for name in filename], axis=-1)  # bgr
+        img = np.stack([cv2.resize(cv2.imread(name), dsize=(720,480)) for name in filename], axis=-1)  # bgr
         #print("11111111111111")
         #print(img_paths)
         results["filename"] = filename

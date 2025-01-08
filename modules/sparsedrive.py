@@ -130,12 +130,17 @@ class SparseDrive(BaseDetector):
         else:
             motion_output, planning_output = None, None
         
+        # det loss
         losses = dict()
         det_output = self.det_head.loss(det_model_outs, data)
         losses.update(det_output)
+
+        # map loss
         if self.task_config['with_map']:
             map_losses_output = self.map_head.loss(map_model_outs, data)
             losses.update(map_losses_output)
+        
+        # motion_plan loss
         if self.task_config['with_motion_plan']:
             motion_loss_cache = dict(indices=self.det_head.sampler.indices,)
             loss_motion = self.motion_plan_head.loss(
@@ -162,8 +167,8 @@ class SparseDrive(BaseDetector):
         feature_maps = self.extract_feat(img)
 
         # det head forward
-        model_outs = self.det_head(feature_maps, data)
-        det_results = self.det_head.post_process(model_outs)
+        det_model_outs = self.det_head(feature_maps, data)
+        det_results = self.det_head.post_process(det_model_outs)
         batch_size = len(det_results)
 
         # map head forward
@@ -173,18 +178,26 @@ class SparseDrive(BaseDetector):
         
         # motion head forward
         if self.task_config['with_motion_plan']:
-            agent_hs = model_outs['instance_feature']
-            map_hs = map_model_outs['instance_feature'] if self.map_head is not None else None
-            motion_model_outs = self.motion_plan_head(agent_hs, map_hs, data)
-            motion_results = self.motion_plan_head.post_process(motion_model_outs, data)
+            motion_output, planning_output = self.motion_plan_head(
+                det_model_outs, 
+                map_model_outs, 
+                feature_maps,
+                data,
+                self.det_head.anchor_encoder,
+                self.det_head.instance_bank.mask,
+                self.det_head.instance_bank.anchor_handler,
+            )
+            planning_results = self.motion_plan_head.post_process(det_model_outs, motion_output, planning_output, data)
+        else:
+            motion_results, planning_results = None, None
 
         output = [dict()] * batch_size
         for i in range(batch_size):
             output[i].update(det_results[i])
-            if self.map_head is not None:
+            if self.task_config['with_map']:
                 output[i].update(map_results[i])
-            if self.motion_plan_head is not None:
-                output[i].update(motion_results[i])
+            if self.task_config['with_motion_plan']:
+                output[i].update(planning_results[1][i])
         return output
 
     def aug_test(self, img, **data):

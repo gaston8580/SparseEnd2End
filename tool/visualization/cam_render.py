@@ -62,8 +62,8 @@ class CamRender:
         result,
         index,
     ):
-        origin_path_pre = '/home/ma-user/work/data/ali_odd'
-        local_path_pre = '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd'
+        origin_path_pre = '/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219'
+        local_path_pre = '/data/sfs_turbo/perception/nuScenes/zdrive'
         img_path = data['cams']['CAM_FRONT_WIDE']['data_path']
         # # origin_path_pre = './data/nuscenes'
         # # local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes'
@@ -72,11 +72,11 @@ class CamRender:
         # img_path = data['cams']['CAM_FRONT']['data_path']
 
         img_path = img_path.replace(origin_path_pre, local_path_pre)
-        save_result_path_prefix = img_path.split("/sample")[0]
-        save_result_path_suffix = img_path.split("/camera0")[1].split(".jpg")[0]
+        save_result_path_prefix = img_path.split("/clip")[0]
+        save_result_path_suffix = img_path.split("/")[-2]
         # save_result_path_prefix = img_path.split("/CAM_FRONT/")[0]
         # save_result_path_suffix = img_path.split("/CAM_FRONT/")[1].split(".jpg")[0]
-        save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results_dz_detect_private_no_aug")
+        save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results")
         save_result_path = os.path.join(save_result_path_dir, save_result_path_suffix + ".json")
         result = json.load(open(save_result_path, "r"))
 
@@ -147,7 +147,7 @@ class CamRender:
         for i, cam in enumerate(CAM_NAMES_NUSC):
             idx = CAM_NAMES_NUSC_converter.index(cam)
             img_path = data['cams'][cam]['data_path']
-            img_path = img_path.replace('/home/ma-user/work/data/ali_odd', '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd')
+            img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive')
             # img_path = img_path.replace('./data/nuscenes', '/home/chengjiafeng/work/data/nuscene/nuscenes')
             # img_path = img_path.replace('./data/nuscenes/samples', '/home/chengjiafeng/work/data/nuscene/nuscenes_8clips_cam')
             image = self.load_image(img_path, cam)
@@ -157,13 +157,13 @@ class CamRender:
         """Load and annotate image based on the provided path."""
         cam = 'CAM_FRONT_WIDE'
         img_path = data['cams'][cam]['data_path']
-        img_path = img_path.replace('/home/ma-user/work/data/ali_odd', '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd')
+        img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive')
         image = self.load_image(img_path, cam)
         self.update_image(image, 0, num_cols)
 
         # lidar = 'LIDAR'
         # lidar_img_path = data['lidar_path']
-        # lidar_img_path = lidar_img_path.replace('/home/ma-user/work/data/ali_odd', '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd').replace('.bin', '.pcd')
+        # lidar_img_path = lidar_img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd').replace('.bin', '.pcd')
         # with open(lidar_img_path, "rb") as f:
         #     pts_bytes = f.read()
         # lidar_points = np.frombuffer(pts_bytes, dtype=np.uint8)  # (nums_pts, )
@@ -171,7 +171,7 @@ class CamRender:
         # self.update_image(lidar_image, 1, num_cols)
         cam = 'CAM_FRONT_WIDE'
         img_path = data['cams'][cam]['data_path']
-        img_path = img_path.replace('/home/ma-user/work/data/ali_odd', '/home/chengjiafeng/work/data/nuscene/dazhuo/ali_odd')
+        img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive')
         image = self.load_image(img_path, cam)
         self.update_image(image, 1, num_cols)
     

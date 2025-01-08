@@ -67,8 +67,8 @@ class InstanceQueue(nn.Module):
                 T_temp2cur = feature_maps[0].new_tensor(
                     np.stack(
                         [
-                            x["T_global_inv"]
-                            @ self.metas["img_metas"][i]["T_global"]
+                            x["global2lidar"]
+                            @ self.metas["img_metas"][i]["lidar2global"]
                             for i, x in enumerate(metas["img_metas"])
                         ]
                     )
@@ -121,7 +121,7 @@ class InstanceQueue(nn.Module):
         if self.period == None:
             self.period = instance_feature.new_zeros(instance_feature.shape[:2]).long()
         else:
-            instance_id = det_output['instance_id']
+            instance_id = det_output['track_id']
             prev_instance_id = self.prev_instance_id
             match = instance_id[..., None] == prev_instance_id[:, None]
             if self.tracking_threshold > 0:

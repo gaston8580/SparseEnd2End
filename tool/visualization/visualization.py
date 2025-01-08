@@ -15,13 +15,13 @@ from cam_render import CamRender
 plot_choices = dict(
     draw_pred=True,  # True: draw gt and pred; False: only draw gt
     det=True,
-    track=True,  # True: draw history tracked boxes
+    track=False,  # True: draw history tracked boxes
     motion=True,
     map=True,
     planning=True,
 )
 START = 0
-END = 39
+END = 199
 INTERVAL = 1
 
 
@@ -102,21 +102,21 @@ def parse_args():
     parser.add_argument(
         "-i",
         "--input-path",
-        default="/home/chengjiafeng/work/data/nuscene/dazhuo",
+        default="/data/sfs_turbo/perception/nuScenes/zdrive/annos_0106",
         type=str,
         help="input dir path of json/pkl files",
     )
     parser.add_argument(
         "-r",
         "--result-path",
-        default='/home/chengjiafeng/work/data/nuscene/dazhuo',
+        default='/data/sfs_turbo/perception/nuScenes/zdrive/annos_0106',
         type=str,
         help="prediction result to visualize",
     )
     parser.add_argument(
         "-o",
         "--out-dir",
-        default="/home/chengjiafeng/work/data/nuscene/vis_dazhuo_detect",
+        default="/data/sfs_turbo/perception/nuScenes/zdrive/vis",
         type=str,
         help="directory where visualize results will be saved",
     )
@@ -133,9 +133,9 @@ def parse_args():
     parser.add_argument('--no-det', action='store_false', help='Disable detection')
     parser.set_defaults(det=True)
 
-    parser.add_argument('--track', action='store_true', help='Draw history tracked boxes')
+    parser.add_argument('--track', default=False, action='store_true', help='Draw history tracked boxes')
     parser.add_argument('--no-track', action='store_false', help='Do not draw history tracked boxes')
-    parser.set_defaults(track=True)
+    parser.set_defaults(track=False)
 
     parser.add_argument('--motion', action='store_true', help='Enable motion')
     parser.add_argument('--no-motion', action='store_false', help='Disable motion')

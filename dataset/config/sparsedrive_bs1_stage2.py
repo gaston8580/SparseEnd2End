@@ -654,7 +654,7 @@ data = dict(
     workers_per_gpu=batch_size//2,
     train=dict(
         **data_basic_config,
-        ann_file="data/zdrive/annos_1218/train",
+        ann_file="data/zdrive/annos_0106",
         pipeline=train_pipeline,
         train_mode=True,
         data_aug_conf=data_aug_conf,
@@ -664,7 +664,7 @@ data = dict(
     ),
     val=dict(
         **data_basic_config,
-        ann_file="data/zdrive/annos_1218/val",
+        ann_file="data/zdrive/annos_0106",
         pipeline=val_pipeline,
         data_aug_conf=data_aug_conf,
         val_mode=True,
@@ -676,7 +676,7 @@ data = dict(
         data_root=data_root,
         classes=class_names,
         version="v1.0-trainval",
-        ann_file="data/zdrive/annos_1218/val",
+        ann_file="data/zdrive/annos_0106",
         pipeline=test_pipeline,
         data_aug_conf=data_aug_conf,
         test_mode=True,

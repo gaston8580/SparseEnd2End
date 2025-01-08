@@ -32,9 +32,10 @@ def single_gpu_test(model, data_loader, is_vis):
 
         if is_vis:
             filename = data['img_metas'].data[0][0]['filename'][0]
-            save_result_path_prefix = filename.split("/CAM_FRONT/")[0]
-            save_result_path_suffix = filename.split("/CAM_FRONT/")[1].split(".jpg")[0]
-            save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results_nuscene_8clips")
+            save_result_path_prefix = filename.split("/clip")[0]
+            save_result_path_suffix = filename.split("/")[-2]
+            save_result_path_dir = os.path.join(save_result_path_prefix, "samples_results")
+
             os.makedirs(save_result_path_dir, exist_ok=True)
             save_result_path = os.path.join(save_result_path_dir, save_result_path_suffix + ".json")
             # print("infer result writes to", save_result_path)

@@ -125,8 +125,10 @@ class HierarchicalPlanningDecoder(object):
         classification = planning_output['classification'][-1]
         prediction = planning_output['prediction'][-1]
         bs = classification.shape[0]
-        classification = classification.reshape(bs, 3, self.ego_fut_mode)
-        prediction = prediction.reshape(bs, 3, self.ego_fut_mode, self.ego_fut_ts, 2).cumsum(dim=-2)
+        # classification = classification.reshape(bs, 3, self.ego_fut_mode)  ##### for dz
+        classification = classification.reshape(bs, 1, self.ego_fut_mode)
+        # prediction = prediction.reshape(bs, 3, self.ego_fut_mode, self.ego_fut_ts, 2).cumsum(dim=-2)
+        prediction = prediction.reshape(bs, 1, self.ego_fut_mode, self.ego_fut_ts, 2).cumsum(dim=-2)
         classification, final_planning = self.select(det_output, motion_output, classification, prediction, data)
         anchor_queue = planning_output["anchor_queue"]
         anchor_queue = torch.stack(anchor_queue, dim=2)
@@ -162,7 +164,8 @@ class HierarchicalPlanningDecoder(object):
         # cmd select
         bs = motion_cls.shape[0]
         bs_indices = torch.arange(bs, device=motion_cls.device)
-        cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
+        cmd = data['ego_fut_cmd'].argmax(dim=-1)
+        cmd = torch.zeros_like(cmd)  ##### for dz
         plan_cls_full = plan_cls.detach().clone()
         plan_cls = plan_cls[bs_indices, cmd]
         plan_reg = plan_reg[bs_indices, cmd]

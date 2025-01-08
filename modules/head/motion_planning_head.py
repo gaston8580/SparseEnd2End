@@ -372,9 +372,7 @@ class MotionPlanningHead(BaseModule):
             reg_weight = reg_weight.unsqueeze(-1)
             reg_pred = reg_pred.cumsum(dim=-2)
             reg_target = reg_target.cumsum(dim=-2)
-            reg_loss = self.motion_loss_reg(
-                reg_pred, reg_target, weight=reg_weight, avg_factor=num_pos
-            )
+            reg_loss = self.motion_loss_reg(reg_pred, reg_target, weight=reg_weight, avg_factor=num_pos)
 
             output.update(
                 {
@@ -404,8 +402,8 @@ class MotionPlanningHead(BaseModule):
             ) = self.planning_sampler.sample(
                 cls,
                 reg,
-                data['gt_ego_fut_trajs'],
-                data['gt_ego_fut_masks'],
+                data['ego_fut_trajs'],
+                data['ego_fut_masks'],
                 data,
             )
             cls = cls.flatten(end_dim=1)
@@ -421,13 +419,13 @@ class MotionPlanningHead(BaseModule):
             reg_loss = self.plan_loss_reg(
                 reg_pred, reg_target, weight=reg_weight
             )
-            status_loss = self.plan_loss_status(status.squeeze(1), data['ego_status'])
+            # status_loss = self.plan_loss_status(status.squeeze(1), data['ego_status'])
 
             output.update(
                 {
                     f"planning_loss_cls_{decoder_idx}": cls_loss,
                     f"planning_loss_reg_{decoder_idx}": reg_loss,
-                    f"planning_loss_status_{decoder_idx}": status_loss,
+                    # f"planning_loss_status_{decoder_idx}": status_loss,
                 }
             )
 

@@ -130,7 +130,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         input_dict = dict(
             sample_scene=info["scene_token"],
             sample_idx=info["token"],
-            pts_filename=info["lidar_path"].replace('/home/ma-user/work/data/ali_odd', '/data/sfs_turbo/perception/nuScenes/zdrive'),
+            pts_filename=info["lidar_path"].replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive'),
             sweeps=info["sweeps"],
             timestamp=info["timestamp"] / 1e6,  # 单位为秒
             lidar2ego_translation=info["lidar2ego_translation"],
@@ -145,8 +145,8 @@ class NuScenes4DDetTrackVADDataset(Dataset):
             map_annos = info['map_annos'],
             fut_valid_flag=info['fut_valid_flag'],
             #map_location=info['map_location'],
-            agent_fut_trajs=np.array(info['gt_agent_fut_trajs']),
-            agent_fut_masks=np.array(info['gt_agent_fut_masks']),
+            agent_fut_trajs=np.array(info['gt_agent_fut_trajs']).astype(np.float32),
+            agent_fut_masks=np.array(info['gt_agent_fut_masks']).astype(np.float32),
             ego_his_trajs=np.array(info['gt_ego_his_trajs']),
             ego_fut_trajs=np.array(info['gt_ego_fut_trajs']),
             ego_fut_masks= np.array(info['gt_ego_fut_masks']),
@@ -176,7 +176,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         lidar2img_rts = []
         cam_intrinsic = []
         for cam_type, cam_info in info["cams"].items():
-            data_path = cam_info["data_path"].replace('/home/ma-user/work/data/ali_odd', '/data/sfs_turbo/perception/nuScenes/zdrive')
+            data_path = cam_info["data_path"].replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive')
             image_paths.append(data_path)
             # obtain lidar to image transformation matrix
             lidar2cam_r = np.linalg.inv(np.array(cam_info["sensor2lidar_rotation"]))

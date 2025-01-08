@@ -1,4 +1,8 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
+import os, sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+sys.path.append(project_root)
 import torch
 import argparse
 
@@ -21,14 +25,21 @@ from modules.sparsedrive import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train E2E detector")
-    parser.add_argument("config", help="train config file path")
+    parser.add_argument("--config", default="dataset/config/sparsedrive_bs1_stage2.py",
+                        help="train config file path")
     parser.add_argument(
-        "--checkpoint", default="ckpt/sparse4dv3_r50.pth", help="checkpoint file"
+        "--checkpoint", default="e2e_worklog/sparsedrive_bs1_stage2/latest.pth", help="checkpoint file"
     )
     parser.add_argument("--launcher", choices=["none", "pytorch"], default="none")
     parser.add_argument(
         "--deterministic",
         action="store_true",
+        help="whether to set deterministic options for CUDNN backend.",
+    )
+    parser.add_argument(
+        "--vis",
+        action="store_true",
+        default=True,
         help="whether to set deterministic options for CUDNN backend.",
     )
     parser.add_argument(
@@ -90,7 +101,7 @@ def main():
     ## GPU Inference
     if not distributed:
         model = E2EDataParallel(model, device_ids=[0])
-        outputs = single_gpu_test(model, data_loader)
+        outputs = single_gpu_test(model, data_loader, args.vis)
     else:
         model = E2EDistributedDataParallel(
             model.cuda(),
