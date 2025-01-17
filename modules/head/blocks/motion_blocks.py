@@ -48,7 +48,7 @@ class MotionPlanningRefinementModule(BaseModule):
             nn.ReLU(),
             nn.Linear(embed_dims, embed_dims),
             nn.ReLU(),
-            nn.Linear(embed_dims, 10),
+            nn.Linear(embed_dims, 9),
         )
 
     def init_weight(self):

@@ -445,12 +445,13 @@ class Sparse4DHead(BaseModule):
                 reg_target,
                 weight=reg_weights,
                 avg_factor=num_pos,
+                prefix=f"{self.task_prefix}_",
                 suffix=f"_{decoder_idx}",
                 quality=qt,
                 cls_target=cls_target,
             )
 
-            output[f"loss_cls_{decoder_idx}"] = cls_loss
+            output[f"{self.task_prefix}_loss_cls_{decoder_idx}"] = cls_loss
             output.update(reg_loss)
 
         if "dn_prediction" not in model_outs:
@@ -494,9 +495,10 @@ class Sparse4DHead(BaseModule):
                 dn_reg_target,
                 avg_factor=num_dn_pos,
                 weight=reg_weights,
+                prefix=f"{self.task_prefix}_",
                 suffix=f"_dn_{decoder_idx}",
             )
-            output[f"loss_cls_dn_{decoder_idx}"] = cls_loss
+            output[f"{self.task_prefix}_loss_cls_dn_{decoder_idx}"] = cls_loss
             output.update(reg_loss)
         return output
 

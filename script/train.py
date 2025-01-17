@@ -1,5 +1,8 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
-import os
+import os, sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+sys.path.append(project_root)
 import time
 import argparse
 
@@ -21,6 +24,9 @@ from modules.sparsedrive import *
 def parse_args():
     parser = argparse.ArgumentParser(description="Train E2E detector")
     parser.add_argument("config", help="train config file path")
+    # parser.add_argument("--config", default='dataset/config/sparsedrive_zdrive_stage2.py', 
+    #                      help="train config file path")
+    parser.add_argument("--stage2", default=0, help="the dir to save logs and models")
     parser.add_argument("--launcher", choices=["none", "pytorch"], default="none")
     parser.add_argument(
         "--deterministic",
@@ -32,7 +38,7 @@ def parse_args():
         action="store_true",
         help="whether not to evaluate the checkpoint during training",
     )
-    parser.add_argument("--local-rank", type=int, default=0)
+    parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--resume-from", help="the checkpoint file to resume from")
 
     args = parser.parse_args()
@@ -120,6 +126,11 @@ def main():
     model = build_module(cfg["model"])
     model.init_weights()
     logger.info(f"Model:\n{model}")
+
+    if args.stage2:
+        for name, param in model.named_parameters():
+            if "motion_plan_head" not in name:
+                param.requires_grad = False
 
     ## Build Dataset
     datasets = [build_module(cfg["data"]["train"])]

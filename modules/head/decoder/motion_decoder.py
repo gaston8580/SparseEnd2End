@@ -164,7 +164,7 @@ class HierarchicalPlanningDecoder(object):
         # cmd select
         bs = motion_cls.shape[0]
         bs_indices = torch.arange(bs, device=motion_cls.device)
-        cmd = data['ego_fut_cmd'].argmax(dim=-1)
+        cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
         cmd = torch.zeros_like(cmd)  ##### for dz
         plan_cls_full = plan_cls.detach().clone()
         plan_cls = plan_cls[bs_indices, cmd]

@@ -25,10 +25,10 @@ from modules.sparsedrive import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train E2E detector")
-    parser.add_argument("--config", default="dataset/config/sparsedrive_bs1_stage2.py",
+    parser.add_argument("--config", default="dataset/config/sparsedrive_zdrive_stage1.py",
                         help="train config file path")
     parser.add_argument(
-        "--checkpoint", default="e2e_worklog/sparsedrive_bs1_stage2/latest.pth", help="checkpoint file"
+        "--checkpoint", default="e2e_worklog/sparsedrive_zdrive_stage1/latest.pth", help="checkpoint file"
     )
     parser.add_argument("--launcher", choices=["none", "pytorch"], default="none")
     parser.add_argument(

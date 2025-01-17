@@ -159,7 +159,7 @@ class BEVRender:
 
         if with_infer:
             origin_path_pre = '/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219'
-            local_path_pre = '/data/sfs_turbo/perception/nuScenes/zdrive'
+            local_path_pre = 'data/CONA/LNNACDDV5PDA30339/ali_odd_1219'
             img_path = data['cams']['CAM_FRONT_WIDE']['data_path']
             # # origin_path_pre = './data/nuscenes'
             # # local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes'

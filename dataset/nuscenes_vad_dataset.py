@@ -35,13 +35,15 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         test_mode=False,
         val_mode=False,
         version="v1.0-mini",
+        local_env=False,
+        local_data_root=None,
+        server_data_root=None,
         det3d_eval_version="detection_cvpr_2019",
         track3d_eval_version="tracking_nips_2019",
     ) -> None:
         super().__init__()
-
         self._classes = classes
-        self._ann_file = ann_file
+        self._ann_file = ann_file.replace(server_data_root, local_data_root) if local_env else ann_file
         self._data_root = data_root
         self._pipeline = self.compose(pipeline)
         self._data_aug_conf = data_aug_conf
@@ -50,9 +52,12 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         self._with_velocity = with_velocity
         self._sequences_split_num = sequences_split_num
         self._test_mode = test_mode
+        self._local_env = local_env
+        self._local_data_root = local_data_root
+        self._server_data_root = server_data_root
 
         self._keep_consistent_seq_aug = keep_consistent_seq_aug
-        self._ordered_annotations = self.load_annotations(ann_file)
+        self._ordered_annotations = self.load_annotations(self._ann_file)
         self._train_mode = train_mode
         self._test_mode = test_mode
         self._val_mode = val_mode
@@ -99,9 +104,13 @@ class NuScenes4DDetTrackVADDataset(Dataset):
             annotations += json.load(open(ann, "r"))
         ordered_annotations = list(sorted(annotations, key=lambda e: e["timestamp"]))
         ordered_annotations = ordered_annotations[:: self._load_interval]
-        #print(ordered_annotations[0].keys)
+        for ann in ordered_annotations:
+            if self._local_env:
+                for cam_type_info in ann["cams"]:
+                    ann["cams"][cam_type_info]["data_path"] = ann["cams"][cam_type_info]["data_path"]\
+                        .replace(self._server_data_root, self._local_data_root)
+                ann["lidar_path"] = ann["lidar_path"].replace(self._server_data_root, self._local_data_root)
         self._scene = list(set([ann["scene_token"] for ann in ordered_annotations]))
-        #self._scene = list(set(["ali_odd" for ann in ordered_annotations]))
         return ordered_annotations
 
     def anno2geom(self, annos):
@@ -109,8 +118,6 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         for label, anno_list in annos.items():
             map_geoms[label] = []
             for anno in anno_list:
-                #print("00000000000")
-                #print(anno)
                 if anno == [] or len(anno)==1:
                     continue
                 geom = LineString(np.array(anno))
@@ -124,13 +131,10 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         """
 
         info = self._ordered_annotations[index]
-        ###For Debug Map##########
-        #map_dict = {}
-        #map_dict["0"] = [[[60,-3],[-60,-3]],[[60,3],[-60, 3]]]
         input_dict = dict(
             sample_scene=info["scene_token"],
             sample_idx=info["token"],
-            pts_filename=info["lidar_path"].replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive'),
+            pts_filename=info["lidar_path"],
             sweeps=info["sweeps"],
             timestamp=info["timestamp"] / 1e6,  # 单位为秒
             lidar2ego_translation=info["lidar2ego_translation"],
@@ -138,20 +142,15 @@ class NuScenes4DDetTrackVADDataset(Dataset):
             ego2global_translation=info["ego2global_translation"],
             ego2global_rotation=info["ego2global_rotation"],
 
-            #prev_idx=info['prev'],
-            #next_idx=info['next'],
-            #can_bus= np.array(info['can_bus']),
-            #frame_idx=info['frame_idx'],
             map_annos = info['map_annos'],
-            fut_valid_flag=info['fut_valid_flag'],
-            #map_location=info['map_location'],
-            agent_fut_trajs=np.array(info['gt_agent_fut_trajs']).astype(np.float32),
-            agent_fut_masks=np.array(info['gt_agent_fut_masks']).astype(np.float32),
-            ego_his_trajs=np.array(info['gt_ego_his_trajs']),
-            ego_fut_trajs=np.array(info['gt_ego_fut_trajs']),
-            ego_fut_masks= np.array(info['gt_ego_fut_masks']),
-            ego_fut_cmd=np.array(info['gt_ego_fut_cmd']),
-            ego_lcf_feat= np.array(info['gt_ego_lcf_feat'])
+            fut_valid_flag = info['fut_valid_flag'],
+            gt_agent_fut_trajs = np.array(info['gt_agent_fut_trajs']).astype(np.float32),
+            gt_agent_fut_masks = np.array(info['gt_agent_fut_masks']).astype(np.float32),
+            gt_ego_his_trajs = np.array(info['gt_ego_his_trajs']),
+            gt_ego_fut_trajs = np.array(info['gt_ego_fut_trajs']),
+            gt_ego_fut_masks = np.array(info['gt_ego_fut_masks']),
+            gt_ego_fut_cmd = np.array(info['gt_ego_fut_cmd']),
+            ego_status = np.array(info['gt_ego_lcf_feat'])
         )
 
         lidar2ego = np.eye(4)
@@ -168,7 +167,6 @@ class NuScenes4DDetTrackVADDataset(Dataset):
 
         input_dict["lidar2global"] = ego2global @ lidar2ego
 
-        #map_geoms = self.anno2geom(info["map_annos"])
         map_geoms = self.anno2geom(input_dict["map_annos"])
         input_dict["map_geoms"] = map_geoms
 
@@ -176,7 +174,7 @@ class NuScenes4DDetTrackVADDataset(Dataset):
         lidar2img_rts = []
         cam_intrinsic = []
         for cam_type, cam_info in info["cams"].items():
-            data_path = cam_info["data_path"].replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive')
+            data_path = cam_info["data_path"]
             image_paths.append(data_path)
             # obtain lidar to image transformation matrix
             lidar2cam_r = np.linalg.inv(np.array(cam_info["sensor2lidar_rotation"]))
@@ -289,9 +287,6 @@ class NuScenes4DDetTrackVADDataset(Dataset):
                         curr_new_flag += 1
 
                 assert len(new_flags) == len(self._flag)
-                #print("0000000000000000000")
-                #print(len(np.bincount(new_flags)))
-                #print(len(np.bincount(self._flag)) * self._sequences_split_num)
                 assert (
                     len(np.bincount(new_flags))
                     == len(np.bincount(self._flag)) * self._sequences_split_num
@@ -403,7 +398,6 @@ class NuScenes4DDetTrackVADDataset(Dataset):
                 result_files.update(
                     {name: self._format_bbox(results_, tmp_file_, tracking=tracking)}
                 )
-        # print(results[0])
         return result_files, tmp_dir
 
     def _format_bbox(self, results, jsonfile_prefix=None, tracking=False):

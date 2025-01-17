@@ -168,6 +168,7 @@ class HungarianLinesAssigner(BaseAssigner):
             cost = self.cost(preds, gts, ignore_cls_cost)
 
         # do Hungarian matching on CPU using linear_sum_assignment
+        cost = torch.nan_to_num(cost)
         cost = cost.detach().cpu().numpy()
         matched_row_inds, matched_col_inds = linear_sum_assignment(cost)
         return matched_row_inds, matched_col_inds, gt_permute_idx

@@ -102,21 +102,21 @@ def parse_args():
     parser.add_argument(
         "-i",
         "--input-path",
-        default="/data/sfs_turbo/perception/nuScenes/zdrive/annos_0106",
+        default="data/CONA/LNNACDDV5PDA30339/ali_odd_1219/annos_vis",
         type=str,
         help="input dir path of json/pkl files",
     )
     parser.add_argument(
         "-r",
         "--result-path",
-        default='/data/sfs_turbo/perception/nuScenes/zdrive/annos_0106',
+        default='data/CONA/LNNACDDV5PDA30339/ali_odd_1219/annos_vis',
         type=str,
         help="prediction result to visualize",
     )
     parser.add_argument(
         "-o",
         "--out-dir",
-        default="/data/sfs_turbo/perception/nuScenes/zdrive/vis",
+        default="data/zdrive/vis",
         type=str,
         help="directory where visualize results will be saved",
     )

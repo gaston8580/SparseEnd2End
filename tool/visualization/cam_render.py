@@ -63,7 +63,7 @@ class CamRender:
         index,
     ):
         origin_path_pre = '/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219'
-        local_path_pre = '/data/sfs_turbo/perception/nuScenes/zdrive'
+        local_path_pre = 'data/CONA/LNNACDDV5PDA30339/ali_odd_1219'
         img_path = data['cams']['CAM_FRONT_WIDE']['data_path']
         # # origin_path_pre = './data/nuscenes'
         # # local_path_pre = '/home/chengjiafeng/work/data/nuscene/nuscenes'
@@ -147,7 +147,7 @@ class CamRender:
         for i, cam in enumerate(CAM_NAMES_NUSC):
             idx = CAM_NAMES_NUSC_converter.index(cam)
             img_path = data['cams'][cam]['data_path']
-            img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive')
+            img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', 'data/CONA/LNNACDDV5PDA30339/ali_odd_1219')
             # img_path = img_path.replace('./data/nuscenes', '/home/chengjiafeng/work/data/nuscene/nuscenes')
             # img_path = img_path.replace('./data/nuscenes/samples', '/home/chengjiafeng/work/data/nuscene/nuscenes_8clips_cam')
             image = self.load_image(img_path, cam)
@@ -157,7 +157,7 @@ class CamRender:
         """Load and annotate image based on the provided path."""
         cam = 'CAM_FRONT_WIDE'
         img_path = data['cams'][cam]['data_path']
-        img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive')
+        img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', 'data/CONA/LNNACDDV5PDA30339/ali_odd_1219')
         image = self.load_image(img_path, cam)
         self.update_image(image, 0, num_cols)
 
@@ -171,7 +171,7 @@ class CamRender:
         # self.update_image(lidar_image, 1, num_cols)
         cam = 'CAM_FRONT_WIDE'
         img_path = data['cams'][cam]['data_path']
-        img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', '/data/sfs_turbo/perception/nuScenes/zdrive')
+        img_path = img_path.replace('/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219', 'data/CONA/LNNACDDV5PDA30339/ali_odd_1219')
         image = self.load_image(img_path, cam)
         self.update_image(image, 1, num_cols)
     

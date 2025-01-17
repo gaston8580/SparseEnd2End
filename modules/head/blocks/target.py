@@ -55,9 +55,10 @@ class MotionTarget():
         for i, (pred_idx, target_idx) in enumerate(indices):
             if len(gt_reg_target[i]) == 0:
                 continue
-            reg_target[i, pred_idx] = gt_reg_target[i][target_idx]
-            reg_weight[i, pred_idx] = gt_reg_mask[i][target_idx]
-            num_pos += len(pred_idx)
+            if pred_idx is not None:
+                reg_target[i, pred_idx] = gt_reg_target[i][target_idx]
+                reg_weight[i, pred_idx] = gt_reg_mask[i][target_idx]
+                num_pos += len(pred_idx)
         
         cls_target = get_cls_target(reg_pred, reg_target, reg_weight)
         cls_weight = reg_weight.any(dim=-1)
@@ -89,7 +90,7 @@ class PlanningTarget():
 
         bs = reg_pred.shape[0]
         bs_indices = torch.arange(bs, device=reg_pred.device)
-        cmd = data['ego_fut_cmd'].argmax(dim=-1)
+        cmd = data['gt_ego_fut_cmd'].argmax(dim=-1)
         
         # cls_pred = cls_pred.reshape(bs, 3, 1, self.ego_fut_mode)  ##### for dz
         # reg_pred = reg_pred.reshape(bs, 3, 1, self.ego_fut_mode, self.ego_fut_ts, 2)

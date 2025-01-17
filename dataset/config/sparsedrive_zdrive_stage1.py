@@ -1,9 +1,13 @@
 log_level = "INFO"
 dist_params = dict(backend="nccl")
+dataset_length = 19900
 
-total_batch_size = 1
-num_gpus = 1
-batch_size = total_batch_size // num_gpus
+num_hosts = 2
+num_gpus = 8
+batch_size = 4
+total_batch_size = num_hosts * num_gpus * batch_size
+num_epochs = 150
+num_iters_per_epoch = int(dataset_length // total_batch_size)
 
 # ================== model ========================
 class_names = [
@@ -55,7 +59,7 @@ queue_length = (3 * n) + 1  # history + current
 task_config = dict(
     with_det=True,
     with_map=True,
-    with_motion_plan=True,
+    with_motion_plan=False,
 )
 
 model = dict(
@@ -226,11 +230,11 @@ model = dict(
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
-            loss_weight=0.0,
+            loss_weight=2.0,
         ),
         loss_reg=dict(
             type="SparseBox3DLoss",
-            loss_box=dict(type="L1Loss", loss_weight=0.0),
+            loss_box=dict(type="L1Loss", loss_weight=0.25),
             loss_centerness=dict(type="CrossEntropyLoss", use_sigmoid=True),
             loss_yawness=dict(type="GaussianFocalLoss"),
             cls_allow_reverse=[class_names.index("barrier")],
@@ -248,7 +252,6 @@ model = dict(
             embed_dims=embed_dims,
             anchor="data/zdrive/anchor/kmeans_map_100_zdrive.npy",
             anchor_handler=dict(type="SparsePoint3DKeyPointsGenerator"),
-            # num_temp_instances=0 if temporal_map else -1,
             num_temp_instances=33 if temporal_map else -1,
             confidence_decay=0.6,
             feat_grad=True,
@@ -279,7 +282,7 @@ model = dict(
                 "refine",
             ]
             * (num_decoder - num_single_frame_decoder_map)
-    )[:],
+        )[:],
         temp_graph_model=dict(
             type="MultiheadAttention",
             embed_dims=embed_dims if not decouple_attn_map else embed_dims * 2,
@@ -338,8 +341,8 @@ model = dict(
                 type='HungarianLinesAssigner',
                 cost=dict(
                     type='MapQueriesCost',
-                    cls_cost=dict(type='FocalLossCost', weight=0.0),
-                    reg_cost=dict(type='LinesL1Cost', weight=0.0, beta=0.01, permute=True),
+                    cls_cost=dict(type='FocalLossCost', weight=1.0),
+                    reg_cost=dict(type='LinesL1Cost', weight=10.0, beta=0.01, permute=True),
                 ),
             ),
             num_cls=num_map_classes,
@@ -351,13 +354,13 @@ model = dict(
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
-            loss_weight=0.0,
+            loss_weight=1.0,
         ),
         loss_reg=dict(
             type="SparseLineLoss",
             loss_line=dict(
                 type='LinesL1Loss',
-                loss_weight=0.0,
+                loss_weight=10.0,
                 beta=0.01,
             ),
             num_sample=num_sample,
@@ -481,12 +484,12 @@ model = dict(
 
 # ================== data ========================
 dataset_type = "NuScenes4DDetTrackVADDataset"
-#data_root = "data/nuscenes/"
 data_root = "data/zdrive"
 
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True
 )
+
 train_pipeline = [
     dict(type="LoadMultiViewImageFromFiles", to_float32=True),
     dict(
@@ -514,8 +517,6 @@ train_pipeline = [
         type="CircleObjectRangeFilter",
         class_dist_thred=[55] * len(class_names),
     ),
-
-
     dict(type="ZdriveSparse4DAdaptor"),
     dict(
         type="Collect",
@@ -532,13 +533,13 @@ train_pipeline = [
             "fut_valid_flag",
             'gt_map_labels',
             'gt_map_pts',
-            "agent_fut_trajs",
-            "agent_fut_masks",
-            "ego_his_trajs",
-            "ego_fut_trajs",
-            "ego_fut_masks",
-            "ego_fut_cmd",
-            "ego_lcf_feat",
+            "gt_agent_fut_trajs",
+            "gt_agent_fut_masks",
+            "gt_ego_his_trajs",
+            "gt_ego_fut_trajs",
+            "gt_ego_fut_masks",
+            "gt_ego_fut_cmd",
+            "ego_status",
         ],
         meta_keys=[
             "sample_idx",
@@ -591,11 +592,11 @@ val_pipeline = [
             "fut_valid_flag",
             'gt_map_labels',
             'gt_map_pts',
-            "ego_his_trajs",
-            "ego_fut_trajs",
-            "ego_fut_masks",
-            "ego_fut_cmd",
-            "ego_lcf_feat",
+            "gt_ego_his_trajs",
+            "gt_ego_fut_trajs",
+            "gt_ego_fut_masks",
+            "gt_ego_fut_cmd",
+            "ego_status",
         ],
         meta_keys=[
             "sample_idx",
@@ -616,26 +617,18 @@ test_pipeline = [
     dict(type="NuScenesSparse4DAdaptor"),
     dict(
         type="Collect",
-        keys=["img", "timestamp", "lidar2img", "image_wh", "ori_img", "ego_his_trajs", "ego_fut_trajs", "ego_fut_cmd",],
+        keys=["img", "timestamp", "lidar2img", "image_wh", "ori_img", "gt_ego_his_trajs", "gt_ego_fut_trajs", "gt_ego_fut_cmd",],
         meta_keys=["lidar2global", "global2lidar", "timestamp", "filename"],
     ),
 ]
 
-
+local_data_root = "/data/sfs_turbo"
+server_data_root = "/home/ma-user/work"
+local_env = True
 data_basic_config = dict(
-    type=dataset_type, data_root=data_root, classes=class_names, version="v1.0-trainval"
+    type=dataset_type, data_root=data_root, classes=class_names, version="v1.0-trainval", local_env=local_env, 
+    local_data_root=local_data_root, server_data_root=server_data_root,
 )
-
-data_aug_conf_bak = {
-    "resize_lim": (0.40, 0.47),
-    "final_dim": input_shape[::-1],  # h,w
-    "bot_pct_lim": (0.0, 0.0),
-    "rot_lim": (-5.4, 5.4),
-    "H": 900,
-    "W": 1600,
-    "rand_flip": True,
-    "rot3d_range": [-0.3925, 0.3925],
-}
 
 data_aug_conf = {
     "resize_lim": (1.0, 1.0),
@@ -643,7 +636,7 @@ data_aug_conf = {
     "bot_pct_lim": (0.0, 0.0),
     "rot_lim": (1.0, 1.0),
     "H": 480,
-    "W": 640,
+    "W": 720,
     "rand_flip": False,
     "rot3d_range": [0.0, 0.0],
 }
@@ -654,7 +647,7 @@ data = dict(
     workers_per_gpu=batch_size//2,
     train=dict(
         **data_basic_config,
-        ann_file="data/zdrive/annos_0106",
+        ann_file="/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219/annos_0107",
         pipeline=train_pipeline,
         train_mode=True,
         data_aug_conf=data_aug_conf,
@@ -664,7 +657,7 @@ data = dict(
     ),
     val=dict(
         **data_basic_config,
-        ann_file="data/zdrive/annos_0106",
+        ann_file="/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219/annos_vis",
         pipeline=val_pipeline,
         data_aug_conf=data_aug_conf,
         val_mode=True,
@@ -672,11 +665,8 @@ data = dict(
         tracking_threshold=tracking_threshold,
     ),
     test=dict(
-        type=dataset_type,
-        data_root=data_root,
-        classes=class_names,
-        version="v1.0-trainval",
-        ann_file="data/zdrive/annos_0106",
+        **data_basic_config,
+        ann_file="/home/ma-user/work/data/CNOA/LNNACDDV5PDA30339/ali_odd_1219/annos_vis",
         pipeline=test_pipeline,
         data_aug_conf=data_aug_conf,
         test_mode=True,
@@ -689,17 +679,13 @@ data = dict(
 seed = 100
 # RunnerSetting
 workflow = [("train", 1)]
-num_epochs = 2
-#num_iters_per_epoch = int(28130 // (num_gpus * batch_size))
-num_iters_per_epoch = int(398 // (num_gpus * batch_size))
 runner = dict(
     type="IterBasedRunner",
     max_iters=num_iters_per_epoch * num_epochs,
 )
 
-
 # CheckpointSaverHookSetting
-checkpoint_epoch_interval = 10
+checkpoint_epoch_interval = 20
 checkpoint_config = dict(interval=num_iters_per_epoch * checkpoint_epoch_interval)
 
 # LoggerHookSetting
@@ -747,6 +733,7 @@ vis_pipeline = [
         meta_keys=["timestamp", "lidar2img"],
     ),
 ]
+
 evaluation = dict(
     interval=num_iters_per_epoch * checkpoint_epoch_interval*300,
     pipeline=vis_pipeline,
@@ -754,7 +741,6 @@ evaluation = dict(
 
 # ================== placehold ========================
 work_dir = None
-#load_from = None
-load_from = 'ckpt/stage1.pth'
+load_from = None
 resume_from = None
 gpu_ids = None  # only applicable to non-distributed training
